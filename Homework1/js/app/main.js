@@ -1,12 +1,6 @@
-import { CONFIG } from './config.js';
-import { pushWords, tickSegments, endThought, resetModel, setOnThoughtEnd } from './model.js';
-import { resizeStage } from './stage.js';
-import { addWords, tickSeeds, release, fillHead } from './dandelion.js';
-import { draw } from './render.js';
+import { VERSIONS } from '../versions/index.js';
 import { createSpeech } from './speech.js';
 import { createReplay } from './replay.js';
-
-export { CONFIG };
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -18,9 +12,41 @@ const videoInput = document.getElementById('video');
 const speedButton = document.getElementById('speed');
 const playButton = document.getElementById('playpause');
 const progressBar = document.querySelector('#progress span');
+const picker = document.getElementById('version');
+const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
+let current = null;
 let ghost = '';
+
+/* ---- versions ---- */
+
+for (const version of VERSIONS) {
+  const option = document.createElement('option');
+  option.value = version.meta.id;
+  option.textContent = version.meta.title;
+  picker.append(option);
+}
+
+function load(id) {
+  const version = VERSIONS.find((v) => v.meta.id === id) || VERSIONS[VERSIONS.length - 1];
+  current = version.create();
+  ghost = '';
+  blurbEl.textContent = version.meta.blurb;
+  picker.value = version.meta.id;
+  current.resize(ctx, window.innerWidth, window.innerHeight);
+  // Switching starts the piece over, so a demo always begins from nothing.
+  replay.stop();
+  speech.stop();
+  sourceEl.dataset.loaded = 'false';
+  progressBar.style.width = '0%';
+  setStatus('ready', false);
+  try { localStorage.setItem('soc-version', version.meta.id); } catch { /* private mode */ }
+}
+
+picker.addEventListener('change', () => load(picker.value));
+
+/* ---- input ---- */
 
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -29,17 +55,13 @@ function fitCanvas() {
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  resizeStage(w, h);
+  if (current) current.resize(ctx, w, h);
 }
-
-// When a thought finishes, the head lets go of everything it was holding.
-setOnThoughtEnd((t) => release(t));
 
 function speak(text, t) {
   const words = typeof text === 'string' ? text.split(/\s+/).filter(Boolean) : text;
-  if (!words.length) return;
-  addWords(words, t);
-  pushWords(words, t);
+  if (!words.length || !current) return;
+  current.words(ctx, words, t);
 }
 
 function setStatus(text, listening) {
@@ -49,8 +71,6 @@ function setStatus(text, listening) {
     recordButton.querySelector('.label').textContent = listening ? 'Listening' : 'Speak';
   }
 }
-
-/* ---- input ---- */
 
 const speech = createSpeech({
   onPhrase(text, isFinal) {
@@ -73,11 +93,11 @@ fallback.addEventListener('input', () => { ghost = fallback.value; });
 const replay = createReplay({
   onWords: (words, virtual) => speak(words, virtual),
   onStatus: setStatus,
-  onEnd: () => { endThought(replay.now()); playButton.textContent = '▶'; },
+  onEnd: () => { playButton.textContent = '▶'; },
 });
 
-// A transcript runs the model on its own clock, so the pauses in the real
-// rant still decide where thoughts end.
+// A transcript runs on its own clock, so the pauses in the real rant still
+// decide where thoughts end however fast it is played back.
 function clock() {
   return replay.active ? replay.now() : performance.now();
 }
@@ -96,10 +116,9 @@ async function loadVideo(url) {
     if (!res.ok) throw new Error(data.error || 'could not fetch that video');
 
     speech.stop();
-    resetModel();
-    fillHead();
+    current.reset();
+    current.resize(ctx, window.innerWidth, window.innerHeight);
     ghost = '';
-
     replay.load(data);
     sourceEl.dataset.loaded = 'true';
     playButton.textContent = '❚❚';
@@ -130,10 +149,12 @@ playButton.addEventListener('click', () => {
 
 window.addEventListener('resize', fitCanvas);
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') endThought(clock());
+  if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
+  // Number keys jump straight to a version, for demoing without the mouse.
+  const n = Number(event.key);
+  if (n >= 1 && n <= VERSIONS.length) load(VERSIONS[n - 1].meta.id);
 });
 
-sourceEl.dataset.loaded = 'false';
 if (!speech.supported) setStatus('no speech api — type instead', false);
 
 /* ---- loop ---- */
@@ -141,14 +162,18 @@ if (!speech.supported) setStatus('no speech api — type instead', false);
 function frame() {
   const now = clock();
   replay.tick();
-  tickSegments(now);
-  tickSeeds(now);
-
-  draw(ctx, ghost, now);
+  if (current) {
+    current.ghost(ghost);
+    current.tick(now, ctx);
+    current.draw(ctx, now);
+  }
   if (replay.active) progressBar.style.width = `${replay.progress() * 100}%`;
   requestAnimationFrame(frame);
 }
 
 fitCanvas();
-fillHead();
+let saved = null;
+try { saved = localStorage.getItem('soc-version'); } catch { /* private mode */ }
+load(saved || VERSIONS[VERSIONS.length - 1].meta.id);
+fitCanvas();
 requestAnimationFrame(frame);

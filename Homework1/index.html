@@ -9,6 +9,11 @@
 <body>
   <canvas id="stage"></canvas>
 
+  <div id="chooser">
+    <select id="version" aria-label="version"></select>
+    <p id="blurb"></p>
+  </div>
+
   <div id="controls">
     <button id="record" type="button" aria-pressed="false">
       <span class="dot"></span><span class="label">Speak</span>
@@ -26,6 +31,6 @@
   </div>
   <div id="progress"><span></span></div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/app/main.js"></script>
 </body>
 </html>
