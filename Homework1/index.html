@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream of Consciousness</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div id="controls">
+    <button id="record" type="button" aria-pressed="false">
+      <span class="dot"></span><span class="label">Speak</span>
+    </button>
+    <input id="fallback" type="text" autocomplete="off" spellcheck="false"
+           placeholder="…or type here and press Enter">
+    <span id="status" role="status">ready</span>
+  </div>
+
+  <div id="source">
+    <input id="video" type="url" autocomplete="off" spellcheck="false"
+           placeholder="paste a video link and press Enter">
+    <button id="speed" type="button" title="playback speed">4×</button>
+    <button id="playpause" type="button" title="pause / resume">❚❚</button>
+  </div>
+  <div id="progress"><span></span></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
