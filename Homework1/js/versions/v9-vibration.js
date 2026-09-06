@@ -26,21 +26,36 @@ const C = {
   emBack: 0.62,          // background thoughts, relative to their size
   fit: 0.86,             // fraction of the line a thought may fill
 
+  slant: 0.26,           // a hand writes on the lean
+  formMs: 1100,          // how long one word takes to find its shape
+  wiggle: 0.42,          // how far it loops about before it settles
+  wiggleRate: 0.006,
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
   holdMs: 34000,         // it stays legible in the field this long
   fadeMs: 9000,
   keep: 5,               // thoughts held in the background at once
+
+  // Nothing said is ever discarded: it drops into a latent space and comes
+  // back when the sentence being spoken reaches for the same words.
+  recallGapMs: 2600,     // the least time between two things resurfacing
+  recallWords: 2,        // words either side of the earlier occurrence
+  recallLevel: 0.42,     // how far it resolves when it does
+  recallHoldMs: 7000,
+  recallFadeMs: 4000,
   quiet: 0.85,           // how still the line goes where writing appears
 };
 
 export function create() {
   let size = { w: 0, h: 0 };
   let lines = [];
-  let live = [];         // thoughts in the field
-  let active = null;     // the one being spoken
+  let live = [];         // what is legible in the field right now
+  let history = [];      // every word ever spoken, in order, never discarded
+  let occurrences = new Map();   // word -> everywhere it has been said
+  let active = null;     // the thought being spoken
   let ghostText = '';
+  let nextRecall = 0;
 
   const thoughts = createThoughts({
     min: 8, max: 26, pauseMs: 2200,
@@ -103,7 +118,7 @@ export function create() {
 
   function begin() {
     const thought = {
-      words: [], text: '', path: null,
+      words: [], text: '', path: null, wordAt: [],
       line: centre(), m: 0, target: 1,
       state: 'writing', at: 0, alpha: 1,
       back: false,
@@ -135,6 +150,50 @@ export function create() {
     if (settled.length > C.keep) settled[0].state = 'fading';
   }
 
+  /**
+   * Every word is tied to every other place it has been said. When one comes
+   * round again, the text either side of an earlier time it was spoken
+   * surfaces in the background — the same word, in the company it kept
+   * before — and wiggles itself into shape there.
+   */
+  function remember(token, now) {
+    const seen = occurrences.get(token.key);
+    if (!seen || seen.length < 2) return;
+    if (now < nextRecall) return;
+
+    // Any earlier time it was said, other than this one.
+    const earlier = seen.slice(0, -1);
+    const at = earlier[Math.floor(Math.random() * earlier.length)];
+    const text = around(at);
+    if (!text) return;
+
+    const line = freeLine();
+    if (line === null) return;
+
+    nextRecall = now + C.recallGapMs;
+    live.push({
+      words: text.split(' '), text, path: null, wordAt: [],
+      line, m: 0, target: C.recallLevel,
+      state: 'recalled', at: now, alpha: 1, back: true,
+    });
+  }
+
+  /** The words either side of one occurrence, as they were said. */
+  function around(index) {
+    const from = Math.max(0, index - C.recallWords);
+    const to = Math.min(history.length, index + C.recallWords + 1);
+    return history.slice(from, to).map((tk) => tk.text).join(' ');
+  }
+
+  /** A line away from the middle that nothing is currently written on. */
+  function freeLine() {
+    const taken = new Set(live.map((t) => t.line));
+    const order = [];
+    for (let d = 2; d < lines.length; d++) order.push(centre() - d, centre() + d);
+    const open = order.filter((i) => i >= 0 && i < lines.length && !taken.has(i));
+    return open.length ? open[Math.floor(Math.random() * open.length)] : null;
+  }
+
   /** Cursive is generated once per thought and reused until its text grows. */
   function pathOf(thought) {
     if (!thought.path) thought.path = writePhrase(thought.text);
@@ -151,10 +210,25 @@ export function create() {
 
   return {
     resize(ctx, w, h) { size = { w, h }; build(); },
-    words(ctx, list, t) { thoughts.add(list, t); ghostText = ''; },
+    words(ctx, list, t) {
+      const tokens = thoughts.add(list, t);
+      ghostText = '';
+      // Tie each word to everywhere it has been said before, and let one of
+      // those earlier moments come back.
+      for (const token of tokens) {
+        history.push(token);
+        if (!token.content) continue;
+        const key = token.key;
+        let seen = occurrences.get(key);
+        if (!seen) occurrences.set(key, (seen = []));
+        seen.push(history.length - 1);
+        remember(token, t);
+      }
+    },
 
     tick(now) {
       thoughts.tick(now);
+
       for (let i = live.length - 1; i >= 0; i--) {
         const thought = live[i];
         const ease = thought.target > thought.m ? C.riseEase : C.fallEase;
@@ -163,6 +237,17 @@ export function create() {
         if (thought.state === 'settled' && now - thought.at > C.holdMs) {
           thought.state = 'fading';
           thought.at = now;
+        }
+        if (thought.state === 'recalled' && now - thought.at > C.recallHoldMs) {
+          thought.state = 'sinking';
+          thought.at = now;
+        }
+        if (thought.state === 'sinking') {
+          const k = Math.min(1, (now - thought.at) / C.recallFadeMs);
+          thought.target = C.recallLevel * (1 - k);
+          thought.alpha = 1 - k * 0.85;
+          // It goes back to being latent, not gone.
+          if (k >= 1) live.splice(i, 1);
         }
         if (thought.state === 'fading') {
           const k = Math.min(1, (now - thought.at) / C.fadeMs);
@@ -197,7 +282,8 @@ export function create() {
 
     reset() {
       thoughts.reset();
-      live = []; active = null; ghostText = '';
+      live = []; history = []; occurrences = new Map();
+      active = null; ghostText = ''; nextRecall = 0;
       build();
     },
   };
@@ -241,6 +327,10 @@ export function create() {
       const still = 1 - eased * C.quiet;
       const gap2 = C.minGap * C.minGap;
 
+      // Words that have only just arrived have no birthday yet; they get
+      // this moment, and start finding their shape from here.
+      while (thought.wordAt.length < (path.words || 1)) thought.wordAt.push(now);
+
       // The line's vibration is sampled coarsely across the writing and
       // interpolated: letters should ride the string, not be speckled by it.
       const span = Math.max(1, endX - startX);
@@ -256,15 +346,30 @@ export function create() {
 
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i];
-        const x = startX + p.x * em;
+
+        // Each word finds its own shape in its own time, so the phrase
+        // writes itself along rather than appearing all at once.
+        const born = thought.wordAt[p.w] ?? now;
+        const age = (now - born) / C.formMs;
+        const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
+        const lm = grown * eased;
+        const loose = 1 - lm;
+
+        // Until it is formed the stroke loops about the place it is heading,
+        // and the lean of the hand comes in with the height of the letter.
+        const swing = loose * C.wiggle * em;
+        const phase = now * C.wiggleRate + p.x * 5.5 + line.seed;
+        const x = startX + (p.x + p.y * lm * C.slant) * em
+          + Math.cos(phase) * swing;
+
         const f = ((x - startX) / span) * taps;
         const k = Math.min(taps - 1, Math.max(0, Math.floor(f)));
         const ride = tap[k] + (tap[k + 1] - tap[k]) * (f - k);
         const y = line.y + ride
-          - p.y * em * eased
-          + (jitter
-            ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6 + line.seed) * jitter
-            : 0);
+          - p.y * em * lm
+          + Math.sin(phase * 1.3) * swing * 0.7
+          + (jitter ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6) * jitter * loose : 0);
+
         // Points closer together than a pixel cost the same to draw and
         // show nothing, so only keep the ones that move the pen.
         const dx = x - lastX;
@@ -281,13 +386,30 @@ export function create() {
     }
 
     if (points.length < 2) return;
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    curve(ctx, points);
 
     const ink = thought ? thought.alpha : 1;
     ctx.strokeStyle = `rgba(0, 0, 0, ${(0.1 + line.weight * (centred ? 0.55 : 0.3)) * ink})`;
     ctx.lineWidth = centred ? 1.2 : 0.8;
     ctx.stroke();
   }
+}
+
+/**
+ * Run a curve through the points rather than joining them with facets: the
+ * pen never turns a corner, so sparse points still read as handwriting.
+ */
+function curve(ctx, pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const next = pts[i + 1];
+    ctx.quadraticCurveTo(
+      pts[i].x, pts[i].y,
+      (pts[i].x + next.x) / 2, (pts[i].y + next.y) / 2
+    );
+  }
+  const end = pts[pts.length - 1];
+  const before = pts[pts.length - 2];
+  ctx.quadraticCurveTo(before.x, before.y, end.x, end.y);
 }

@@ -85,10 +85,12 @@ const STROKE = {
   stem(pts, x, s = 1) {
     const top = ASC * s;
     const w = 0.34;
-    quad(pts, { x: x + w * 1.5, y: top * 0.5 }, { x: x + w * 0.95, y: top });
-    quad(pts, { x: x + w * 0.1, y: top * 0.98 }, { x: x + w * 0.3, y: top * 0.52 });
-    quad(pts, { x: x + w * 0.52, y: top * 0.08 }, { x: x + w * 0.86, y: 0 });
-    return w * 0.86;
+    // Up the right, over the top, and back down the left: an open loop,
+    // not a stick.
+    quad(pts, { x: x + w * 1.75, y: top * 0.42 }, { x: x + w * 1.02, y: top });
+    quad(pts, { x: x - w * 0.05, y: top * 0.99 }, { x: x + w * 0.22, y: top * 0.46 });
+    quad(pts, { x: x + w * 0.45, y: top * 0.06 }, { x: x + w * 0.92, y: 0 });
+    return w * 0.92;
   },
 
   /** A straight tall stroke, for t: shorter, and no loop. */
@@ -205,12 +207,17 @@ const LETTERS = {
  * measured up from the baseline, and the total advance.
  */
 export function writePhrase(text) {
-  const pts = [{ x: 0, y: 0 }];
+  const pts = [{ x: 0, y: 0, w: 0 }];
   let x = 0;
+  let word = 0;
 
   for (const ch of String(text).toLowerCase()) {
     if (ch === ' ') {
-      quad(pts, { x: x + 0.22, y: -0.05 }, { x: x + 0.44, y: 0 }, 4);
+      // The hand lifts between words, but the line does not: it loops along
+      // under the baseline to the next one.
+      quad(pts, { x: x + 0.2, y: -0.22 }, { x: x + 0.44, y: 0 }, 4);
+      word++;
+      mark(pts, word);
       x += 0.44;
       continue;
     }
@@ -218,7 +225,7 @@ export function writePhrase(text) {
     if (!recipe) continue;
 
     // The joining stroke up out of the line and into the letter.
-    quad(pts, { x: x + 0.08, y: 0.22 }, { x: x + 0.1, y: 0.06 }, 3);
+    quad(pts, { x: x + 0.14, y: 0.34 }, { x: x + 0.1, y: 0.06 }, 3);
     x += 0.1;
     for (const step of recipe) {
       const [name, scale] = Array.isArray(step) ? step : [step, 1];
@@ -226,6 +233,12 @@ export function writePhrase(text) {
     }
     if (Math.abs(at(pts).y) > 0.001) quad(pts, { x: x + 0.06, y: 0.08 }, { x: x + 0.1, y: 0 }, 3);
     x = Math.max(x, at(pts).x) + 0.06;
+    mark(pts, word);
   }
-  return { points: pts, width: Math.max(x, 0.001) };
+  return { points: pts, width: Math.max(x, 0.001), words: word + 1 };
+}
+
+/** Stamp every point written since the last mark with its word. */
+function mark(pts, word) {
+  for (let i = pts.length - 1; i >= 0 && pts[i].w === undefined; i--) pts[i].w = word;
 }
