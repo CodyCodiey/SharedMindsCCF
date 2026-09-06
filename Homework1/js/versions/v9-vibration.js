@@ -1,5 +1,5 @@
 import { createThoughts } from '../shared/thoughts.js';
-import { writePhrase, canWrite } from '../shared/cursive.js';
+import { writePhrase, canWrite, HAND } from '../shared/cursive.js';
 import { isJapanese } from '../shared/lexicon.js';
 
 export const meta = {
@@ -23,6 +23,16 @@ const C = {
   tremorRate: 0.031,
 
   em: 44,                // px per em: a fixed, readable hand
+
+  // The shape of the hand itself.
+  letterHeight: 0.82,    // x-height against the width of the letters
+  letterWidth: 1,
+  letterSpacing: 0.1,
+  wordGap: 0.46,
+  ascender: 1,
+  descender: 1,
+  roundness: 1,
+
   emBack: 0.62,          // background thoughts, relative to their size
   fit: 0.92,             // fraction of the line a thought may fill
   maxRows: 5,            // lines a single thought may run over
@@ -80,6 +90,13 @@ const C = {
 // What is worth reaching for while it is running.
 export const CONTROLS = [
   { key: 'em', label: 'hand size', min: 16, max: 80, step: 1 },
+  { key: 'letterHeight', label: 'letter height', min: 0.4, max: 1.4, step: 0.02, shape: true },
+  { key: 'letterWidth', label: 'letter width', min: 0.6, max: 1.8, step: 0.02, shape: true },
+  { key: 'letterSpacing', label: 'letter spacing', min: 0, max: 0.5, step: 0.01, shape: true },
+  { key: 'wordGap', label: 'word spacing', min: 0.1, max: 1.4, step: 0.02, shape: true },
+  { key: 'ascender', label: 'ascender reach', min: 0.3, max: 1.8, step: 0.02, shape: true },
+  { key: 'descender', label: 'descender drop', min: 0.3, max: 1.8, step: 0.02, shape: true },
+  { key: 'roundness', label: 'roundness', min: 0.2, max: 1.9, step: 0.02, shape: true },
   { key: 'slant', label: 'lean', min: 0, max: 0.5, step: 0.01 },
   { key: 'formMs', label: 'time to form a word', min: 200, max: 3000, step: 50 },
   { key: 'wiggle', label: 'wiggle', min: 0, max: 1.2, step: 0.02 },
@@ -277,9 +294,21 @@ export function create() {
     return open.length ? open[Math.floor(Math.random() * open.length)] : null;
   }
 
+  /** Set the hand to the current shape before anything is written with it. */
+  function useHand() {
+    HAND.xHeight = C.letterHeight;
+    HAND.width = C.letterWidth;
+    HAND.spacing = C.letterSpacing;
+    HAND.wordGap = C.wordGap;
+    HAND.ascender = C.ascender;
+    HAND.descender = C.descender;
+    HAND.roundness = C.roundness;
+  }
+
   /** Cursive is generated once per thought and reused until its text grows. */
   function pathOf(thought) {
     if (!thought.path) {
+      useHand();
       thought.drawn = canWrite(thought.text);
       thought.path = thought.drawn
         ? writePhrase(thought.text)
@@ -387,7 +416,13 @@ export function create() {
       const spec = CONTROLS.find((c) => c.key === key);
       if (spec && spec.rebuild) build();
       if (spec && spec.thought) thoughts.configure({ [key]: value });
-      for (const t of live) { t.rows = null; t.rowsAt = -1; t.em = 0; }
+      // Reshaping the hand means everything on screen must be written again.
+      for (const t of live) {
+        if (spec && spec.shape) t.path = null;
+        t.rows = null;
+        t.rowsAt = -1;
+        t.em = 0;
+      }
     },
     resize(ctx, w, h) { size = { w, h }; build(); },
     words(ctx, list, t) {
