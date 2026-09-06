@@ -50,6 +50,7 @@ const C = {
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
   gapPad: 26,            // clear space either side of the writing
+  gapOpenAt: 0.35,       // how much forming is enough to clear the full break
   coilRadius: 0.2,         // winding added on top of the chunk, if wanted
   coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
@@ -626,11 +627,22 @@ export function create() {
       // While the words form, the break opens from the middle outward.
       // While they unwrite, its left edge follows them rightward, so the
       // string closes behind the unwriting at the same rate.
+      // The ink goes on a staggered schedule, so the break has to close on
+      // the same one: this is the point along the row that has just
+      // finished returning to the line.
       const leaving = p.thought.taut || 0;
-      const a = p.startX + p.width * leaving - C.gapPad;
+      const stagger = C.leaveStagger;
+      const cleared = stagger > 0
+        ? (leaving * (1 + stagger) - 1) / stagger
+        : leaving;
+      const a = p.startX + p.width * Math.max(0, Math.min(1, cleared)) - C.gapPad;
       const b = p.startX + p.width + C.gapPad;
       const centreX = (a + b) / 2;
-      const half = ((b - a) / 2) * p.eased;
+      // The break has to clear the whole of the writing as soon as there is
+      // any of it, not open in proportion to how resolved it is — a
+      // fragment that only ever half resolves still needs its full room.
+      const open = Math.min(1, p.eased / C.gapOpenAt);
+      const half = ((b - a) / 2) * open;
       return [centreX - half, centreX + half];
     }).filter(([a, b]) => b - a > 1);
 
@@ -691,7 +703,7 @@ export function create() {
     // The line's own movement, sampled coarsely across the writing so the
     // letters ride it instead of being speckled by it.
     const span = Math.max(1, endX - startX);
-    const taps = Math.max(2, Math.ceil(span / 26));
+    const taps = Math.max(2, Math.ceil(span / 12));
     const tap = [];
     for (let k = 0; k <= taps; k++) {
       const x = startX + (span * k) / taps;
@@ -790,6 +802,17 @@ export function create() {
         const along = (run[i] - runFrom) / runLen;
         px = x + (startX + along * tautWidth - x) * taut;
         py = py0 + (y + ride - py0) * taut;
+      }
+
+      // Once a point has fully returned to the string, the string itself is
+      // drawn there again — so this stops drawing it, rather than laying a
+      // second heavier line over the first.
+      if (taut >= 0.995) {
+        flush();
+        lastX = -1e9;
+        lastY = -1e9;
+        prevEnd = null;
+        continue;
       }
 
       const dx = px - lastX;
