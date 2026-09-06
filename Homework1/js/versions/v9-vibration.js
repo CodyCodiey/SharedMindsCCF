@@ -15,41 +15,43 @@ const C = {
   modes: 4,
   modeMin: 11,           // high mode numbers: a string, not a swell
   modeMax: 42,           // kept under what the sampling can actually show
-  amp: 9,
+  amp: 40,
   ampFalloff: 0.6,
-  rate: 0.0042,          // fast enough to read as vibration
-  tremor: 0.22,          // fine unresolved shiver on top
+  rate: 0.0095,          // fast enough to read as vibration
+  tremor: 0.14,          // fine unresolved shiver on top
   tremorRate: 0.031,
+  tremorPace: 0.55,      // how much faster speech shakes the strings
+  paceWindowMs: 2600,    // the stretch of talk the pace is taken over
 
-  em: 44,                // px per em: a fixed, readable hand
+  em: 65,                // px per em: a fixed, readable hand
 
   // The shape of the hand itself.
-  letterHeight: 0.82,    // x-height against the width of the letters
-  letterWidth: 1,
-  letterSpacing: 0.34,
-  wordGap: 0.46,
-  ascender: 1,
-  descender: 1,
-  roundness: 1,
+  letterHeight: 0.56,    // x-height against the width of the letters
+  letterWidth: 0.72,
+  letterSpacing: 0.09,
+  wordGap: 1,
+  ascender: 0.8,
+  descender: 1.1,
+  roundness: 0.74,
 
-  emBack: 0.62,          // background thoughts, relative to their size
+  emBack: 0.82,          // a fragment brought back, against the hand size
   fit: 0.92,             // fraction of the line a thought may fill
   maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
-  slant: 0.17,           // a hand writes on the lean, but not so far it hurts
-  formMs: 1300,          // how long one word takes to find its shape
+  slant: 0.34,           // a hand writes on the lean, but not so far it hurts
+  formMs: 800,          // how long one word takes to find its shape
   wiggle: 0.55,          // how far it loops about before it settles
-  wiggleRate: 0.006,
-  wiggleSpread: 0.55,    // cycles of swing per em along the stroke
+  wiggleRate: 0.018,
+  wiggleSpread: 1.25,    // cycles of swing per em along the stroke
   slideEase: 0.08,       // how the writing glides left as more arrives
   slideStep: 5,          // ...and never further than this in one frame
   recallDim: 0.5,        // how much less formed a recall's other words are
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
-  gapPad: 14,            // clear space either side of the writing
-  coilRadius: 0,         // winding added on top of the chunk, if wanted
-  coilTurns: 2.6,
+  gapPad: 26,            // clear space either side of the writing
+  coilRadius: 0.2,         // winding added on top of the chunk, if wanted
+  coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
   settleEase: 0.055,     // how a thought travels to the string it settles on
@@ -57,21 +59,21 @@ const C = {
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
   leaveMs: 2600,         // how long a finished thought takes to unwrite
-  leaveStagger: 0.85,    // how far the right end leads the left on the way out
+  leaveStagger: 0.75,    // how far the right end leads the left on the way out
 
   // Nothing said is ever discarded: it drops into a latent space and comes
   // back when the sentence being spoken reaches for the same words.
-  recallGapMs: 2200,     // the least time between two things resurfacing
+  recallGapMs: 1300,     // the least time between two things resurfacing
   recallWords: 2,        // words either side of the earlier occurrence
   recallLevel: 0.72,     // recalls are legible, but only for a moment
   recallHoldMs: 1900,   // for something that surfaced unprompted
-  recallEcho: 2,        // how much longer a linked one stays after its thought goes
+  recallEcho: 3,        // how much longer a linked one stays after its thought goes
   recallFadeMs: 1100,
   recallRise: 0.16,      // they arrive quickly, the way a stray thought does
 
   // Where one thought ends. These live here so the panel can reach them.
-  maxWords: 16,          // words said before a thought is cut off
-  pauseMs: 1500,         // silence long enough to end one
+  maxWords: 40,          // words said before a thought is cut off
+  pauseMs: 700,         // silence long enough to end one
 
   // Some things surface for no reason at all.
   burstEveryMs: 7500,
@@ -79,7 +81,7 @@ const C = {
 
   // A settled thought does not dissolve into the wave; it comes into and out
   // of legibility, swelling and retreating.
-  swellPeriodMs: 15000,
+  swellPeriodMs: 26500,
   swellFloor: 0.16,      // faintest it gets
   swellPeak: 0.88,       // clearest it gets
   backLevelSwing: 0.1,   // its letters barely change height while it does
@@ -87,7 +89,7 @@ const C = {
   // A thought gathers presence as it grows.
   growWords: 14,         // words by which it is at full weight
   growFloor: 0.55,
-  quiet: 0.93,           // how still the line goes where writing appears
+  quiet: 0.18,           // how still the line goes where writing appears
 };
 
 // What is worth reaching for while it is running.
@@ -112,6 +114,8 @@ export const CONTROLS = [
   { key: 'amp', label: 'vibration', min: 0, max: 40, step: 0.5 },
   { key: 'rate', label: 'vibration speed', min: 0.0005, max: 0.02, step: 0.0005 },
   { key: 'tremor', label: 'tremor', min: 0, max: 1.5, step: 0.02 },
+  { key: 'tremorPace', label: 'tremor from speaking pace', min: 0, max: 3, step: 0.05 },
+  { key: 'emBack', label: 'size of a recalled fragment', min: 0.3, max: 1.2, step: 0.02 },
   { key: 'quiet', label: 'stillness under writing', min: 0, max: 1, step: 0.02 },
   { key: 'maxWords', label: 'words per thought', min: 4, max: 40, step: 1, thought: true },
   { key: 'pauseMs', label: 'silence that ends a thought', min: 400, max: 5000, step: 100, thought: true },
@@ -134,6 +138,8 @@ export function create() {
   let active = null;     // the thought being spoken
   let ghostText = '';
   let nextRecall = 0;
+  let spoken = [];       // when the recent words arrived
+  let pace = 0;          // words a second, eased
   let nextBurst = 0;
 
   const thoughts = createThoughts({
@@ -195,7 +201,7 @@ export function create() {
     }
     const shiver = Math.sin(u * 220 + now * C.tremorRate + line.seed)
       * Math.sin(u * 91 - now * C.tremorRate * 0.7)
-      * C.tremor;
+      * C.tremor * (1 + C.tremorPace * pace);
     return (sum + shiver) * line.amp;
   }
 
@@ -421,6 +427,7 @@ export function create() {
     resize(ctx, w, h) { size = { w, h }; build(); },
     words(ctx, list, t) {
       const tokens = thoughts.add(list, t);
+      for (const _ of tokens) spoken.push(t);
       ghostText = '';
       // Tie each word to everywhere it has been said before, and let one of
       // those earlier moments come back.
@@ -437,6 +444,12 @@ export function create() {
 
     tick(now) {
       thoughts.tick(now);
+
+      // How fast the words are coming. The strings shake harder the faster
+      // they arrive, and settle again when the speaking does.
+      while (spoken.length && now - spoken[0] > C.paceWindowMs) spoken.shift();
+      const perSecond = spoken.length / (C.paceWindowMs / 1000);
+      pace += (perSecond - pace) * 0.08;
 
       // Something surfaces unbidden every so often.
       if (now > nextBurst) {
@@ -528,7 +541,7 @@ export function create() {
 
     reset() {
       thoughts.reset();
-      live = []; history = []; occurrences = new Map();
+      live = []; history = []; occurrences = new Map(); spoken = []; pace = 0;
       active = null; ghostText = ''; nextRecall = 0; nextBurst = 0;
       build();
     },
