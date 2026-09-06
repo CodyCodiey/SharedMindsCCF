@@ -9,8 +9,8 @@
  * a d is a bowl and then a stem, and writing it the other way round is not a d.
  */
 
-const ASC = 1.85;
-const DESC = -0.85;
+const ASC = 1.62;
+const DESC = -0.74;
 
 function quad(pts, c, to, steps = 4) {
   const from = pts[pts.length - 1];
@@ -30,16 +30,16 @@ const at = (pts) => pts[pts.length - 1];
 // how far along the line it travelled.
 const STROKE = {
   /** An over-arc: rounded on top, cornered at the line. n, m, i. */
-  arch(pts, x, s = 1) {
-    const w = 0.66 * s;
-    quad(pts, { x: x + w * 0.02, y: 1.18 }, { x: x + w * 0.5, y: 1 });
-    quad(pts, { x: x + w * 0.98, y: 1.16 }, { x: x + w, y: 0 });
+  arch(pts, x, s = 1, h = 1) {
+    const w = 0.84 * s;
+    quad(pts, { x: x + w * 0.04, y: h * 1.16 }, { x: x + w * 0.5, y: h });
+    quad(pts, { x: x + w * 0.96, y: h * 1.14 }, { x: x + w, y: 0 });
     return w;
   },
 
   /** An under-arc: cornered on top, rounded at the line. u, y. */
   trough(pts, x, s = 1) {
-    const w = 0.62 * s;
+    const w = 0.8 * s;
     quad(pts, { x: x + w * 0.1, y: 0.94 }, { x: x + w * 0.24, y: 1 });
     quad(pts, { x: x + w * 0.42, y: -0.16 }, { x: x + w * 0.8, y: 0.34 });
     quad(pts, { x: x + w * 0.96, y: 0.86 }, { x: x + w, y: 1 });
@@ -49,7 +49,7 @@ const STROKE = {
 
   /** A pointed valley. v, w. */
   wedge(pts, x, s = 1) {
-    const w = 0.58 * s;
+    const w = 0.74 * s;
     quad(pts, { x: x + w * 0.1, y: 0.9 }, { x: x + w * 0.22, y: 1 }, 3);
     pts.push({ x: x + w * 0.6, y: 0.02 });
     pts.push({ x: x + w, y: 1 });
@@ -58,7 +58,7 @@ const STROKE = {
 
   /** A round body, written the way a hand makes an o, closing at the top. */
   bowl(pts, x, s = 1) {
-    const w = 0.7 * s;
+    const w = 0.88 * s;
     const r = w / 2;
     const cx = x + r;
     quad(pts, { x: x + w * 0.04, y: 0.86 }, { x: cx, y: 1 });
@@ -73,7 +73,7 @@ const STROKE = {
 
   /** An open bowl: c, which never closes. */
   hook(pts, x, s = 1) {
-    const w = 0.58 * s;
+    const w = 0.74 * s;
     quad(pts, { x: x + w * 0.16, y: 0.9 }, { x: x + w * 0.62, y: 0.98 });
     quad(pts, { x: x + w * 0.1, y: 1.02 }, { x: x + w * 0.06, y: 0.5 });
     quad(pts, { x: x + w * 0.04, y: 0.02 }, { x: x + w * 0.66, y: 0.06 });
@@ -84,7 +84,7 @@ const STROKE = {
   /** The tall loop of l, h, b, k: up the right, over, down the left. */
   stem(pts, x, s = 1) {
     const top = ASC * s;
-    const w = 0.34;
+    const w = 0.4;
     // Up the right, over the top, and back down the left: an open loop,
     // not a stick.
     quad(pts, { x: x + w * 1.75, y: top * 0.42 }, { x: x + w * 1.02, y: top });
@@ -120,7 +120,7 @@ const STROKE = {
 
   /** The small closed loop of e. */
   eye(pts, x, s = 1) {
-    const w = 0.5 * s;
+    const w = 0.64 * s;
     quad(pts, { x: x + w * 0.1, y: 0.44 }, { x: x + w * 0.52, y: 0.52 });
     quad(pts, { x: x + w * 0.86, y: 0.6 }, { x: x + w * 0.5, y: 0.98 });
     quad(pts, { x: x + w * 0.04, y: 0.9 }, { x: x + w * 0.1, y: 0.36 });
@@ -130,7 +130,7 @@ const STROKE = {
 
   /** The s curl. */
   curl(pts, x, s = 1) {
-    const w = 0.44 * s;
+    const w = 0.58 * s;
     quad(pts, { x: x + w * 0.9, y: 0.5 }, { x: x + w * 0.72, y: 0.96 });
     quad(pts, { x: x + w * 0.1, y: 1.02 }, { x: x + w * 0.24, y: 0.5 });
     quad(pts, { x: x + w * 0.4, y: 0.08 }, { x: x + w, y: 0.02 });
@@ -182,8 +182,8 @@ const LETTERS = {
   f: ['stem', 'tail'],
   g: ['bowl', 'tail'],
   h: ['stem', 'arch'],
-  i: [['arch', 0.78]],
-  j: [['arch', 0.7], 'tail'],
+  i: [['arch', 0.72, 0.72]],
+  j: [['arch', 0.66, 0.72], 'tail'],
   k: ['stem', 'knot'],
   l: ['stem'],
   m: ['arch', 'arch', 'arch'],
@@ -228,11 +228,11 @@ export function writePhrase(text) {
     quad(pts, { x: x + 0.14, y: 0.34 }, { x: x + 0.1, y: 0.06 }, 3);
     x += 0.1;
     for (const step of recipe) {
-      const [name, scale] = Array.isArray(step) ? step : [step, 1];
-      x += STROKE[name](pts, x, scale);
+      const [name, scale, height] = Array.isArray(step) ? step : [step, 1];
+      x += STROKE[name](pts, x, scale, height);
     }
     if (Math.abs(at(pts).y) > 0.001) quad(pts, { x: x + 0.06, y: 0.08 }, { x: x + 0.1, y: 0 }, 3);
-    x = Math.max(x, at(pts).x) + 0.06;
+    x = Math.max(x, at(pts).x) + 0.1;
     mark(pts, word);
   }
   return { points: pts, width: Math.max(x, 0.001), words: word + 1 };

@@ -11,7 +11,7 @@ const C = {
   lines: 19,
   margin: 46,
   samples: 132,          // points per line of plain vibration
-  minGap: 1.6,           // no closer than this on screen: below a pixel is waste
+  minGap: 1.15,          // no closer than this on screen: below a pixel is waste
   modes: 4,
   modeMin: 11,           // high mode numbers: a string, not a swell
   modeMax: 42,           // kept under what the sampling can actually show
@@ -21,10 +21,11 @@ const C = {
   tremor: 0.22,          // fine unresolved shiver on top
   tremorRate: 0.031,
 
-  emMax: 52,             // px per em when a thought is short
-  emMin: 11,
+  em: 34,                // px per em: a fixed, readable hand
   emBack: 0.62,          // background thoughts, relative to their size
-  fit: 0.86,             // fraction of the line a thought may fill
+  fit: 0.92,             // fraction of the line a thought may fill
+  maxRows: 6,            // lines a single thought may run over
+  emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
   slant: 0.26,           // a hand writes on the lean
   formMs: 1100,          // how long one word takes to find its shape
@@ -44,7 +45,7 @@ const C = {
   recallLevel: 0.42,     // how far it resolves when it does
   recallHoldMs: 7000,
   recallFadeMs: 4000,
-  quiet: 0.85,           // how still the line goes where writing appears
+  quiet: 0.93,           // how still the line goes where writing appears
 };
 
 export function create() {
@@ -58,12 +59,14 @@ export function create() {
   let nextRecall = 0;
 
   const thoughts = createThoughts({
-    min: 8, max: 26, pauseMs: 2200,
+    min: 8, max: 20, pauseMs: 2200,
     onWords(tokens) {
       if (!active) active = begin();
       for (const tk of tokens) active.words.push(tk.text);
       active.text = active.words.join(' ');
       active.path = null;         // rebuilt on the next draw
+      active.rows = null;
+      active.em = 0;
     },
     onEnd({ t }) { settle(t); },
   });
@@ -201,11 +204,56 @@ export function create() {
   }
 
   function emOf(thought) {
+    return thought.em || (thought.back ? C.em * C.emBack : C.em);
+  }
+
+  /** Break a stroke between words at whatever width it is given. */
+  function wrapAt(path, limit) {
+    const pts = path.points;
+    const spans = [];
+    for (let i = 0; i < pts.length; i++) {
+      const w = pts[i].w ?? 0;
+      const span = spans[w] || (spans[w] = { from: i, to: i, x0: pts[i].x, x1: pts[i].x });
+      span.to = i;
+      span.x1 = Math.max(span.x1, pts[i].x);
+    }
+    const rows = [];
+    let row = null;
+    for (const span of spans) {
+      if (!span) continue;
+      if (row && span.x1 - row.x0 > limit) { rows.push(row); row = null; }
+      if (!row) row = { from: span.from, to: span.to, x0: span.x0, x1: span.x1 };
+      else { row.to = span.to; row.x1 = span.x1; }
+    }
+    if (row) rows.push(row);
+    return rows;
+  }
+
+  /**
+   * A thought too long for one string carries on down the next, broken
+   * between words. If it will not fit even then, the hand gets smaller
+   * rather than the sentence getting cut off.
+   */
+  function rowsOf(thought) {
+    const ideal = thought.back ? C.em * C.emBack : C.em;
+    if (thought.rows && thought.rowsAt === size.w && thought.rowsIdeal === ideal) {
+      return thought.rows;
+    }
     const path = pathOf(thought);
     const room = (size.w - C.margin * 2) * C.fit;
-    let em = Math.min(C.emMax, room / Math.max(path.width, 0.4));
-    if (thought.back) em *= C.emBack;
-    return Math.max(C.emMin, em);
+
+    let em = ideal;
+    let rows = wrapAt(path, room / em);
+    while (rows.length > C.maxRows && em > C.emMin) {
+      em = Math.max(C.emMin, em * 0.88);
+      rows = wrapAt(path, room / em);
+    }
+
+    thought.em = em;
+    thought.rows = rows;
+    thought.rowsAt = size.w;
+    thought.rowsIdeal = ideal;
+    return rows;
   }
 
   return {
@@ -266,8 +314,16 @@ export function create() {
       ctx.lineJoin = 'round';
 
       lines.forEach((line, index) => {
-        const here = live.filter((t) => t.line === index && t.m > 0.004);
-        drawLine(ctx, line, index, here, now);
+        // Whichever thought has a row on this string writes it here.
+        let thought = null;
+        let row = null;
+        for (const t of live) {
+          if (t.m <= 0.004) continue;
+          const rows = rowsOf(t);
+          const which = index - t.line;
+          if (which >= 0 && which < rows.length) { thought = t; row = rows[which]; break; }
+        }
+        drawLine(ctx, line, index, thought, row, now);
       });
     },
 
@@ -276,7 +332,7 @@ export function create() {
       if (active && ghostText) {
         // Interim speech rides on the end of the thought being written.
         const shown = `${active.words.join(' ')} ${ghostText}`.trim();
-        if (shown !== active.text) { active.text = shown; active.path = null; }
+        if (shown !== active.text) { active.text = shown; active.path = null; active.rows = null; active.em = 0; }
       }
     },
 
@@ -294,10 +350,9 @@ export function create() {
    * writing stands clear; at nothing the letters lie flat and the line is
    * only a vibrating string again.
    */
-  function drawLine(ctx, line, index, here, now) {
+  function drawLine(ctx, line, index, thought, row, now) {
     const left = C.margin;
     const right = size.w - C.margin;
-    const thought = here[0];
     const centred = index === centre();
 
     let startX = right;
@@ -307,7 +362,7 @@ export function create() {
     if (thought) {
       path = pathOf(thought);
       em = emOf(thought);
-      const width = path.width * em;
+      const width = (row.x1 - row.x0) * em;
       startX = Math.max(left, (size.w - width) / 2);
       endX = Math.min(right, startX + width);
     }
@@ -344,7 +399,7 @@ export function create() {
       let lastY = -1e9;
       const pts = path.points;
 
-      for (let i = 0; i < pts.length; i++) {
+      for (let i = row.from; i <= row.to; i++) {
         const p = pts[i];
 
         // Each word finds its own shape in its own time, so the phrase
@@ -359,7 +414,7 @@ export function create() {
         // and the lean of the hand comes in with the height of the letter.
         const swing = loose * C.wiggle * em;
         const phase = now * C.wiggleRate + p.x * 5.5 + line.seed;
-        const x = startX + (p.x + p.y * lm * C.slant) * em
+        const x = startX + ((p.x - row.x0) + p.y * lm * C.slant) * em
           + Math.cos(phase) * swing;
 
         const f = ((x - startX) / span) * taps;
@@ -374,7 +429,7 @@ export function create() {
         // show nothing, so only keep the ones that move the pen.
         const dx = x - lastX;
         const dy = y - lastY;
-        if (i !== pts.length - 1 && dx * dx + dy * dy < gap2) continue;
+        if (i !== row.to && dx * dx + dy * dy < gap2) continue;
         points.push({ x, y });
         lastX = x;
         lastY = y;
@@ -388,9 +443,13 @@ export function create() {
     if (points.length < 2) return;
     curve(ctx, points);
 
+    // Ink follows meaning: a line carrying writing is drawn as writing,
+    // heavier and darker than a line that is only vibrating.
     const ink = thought ? thought.alpha : 1;
-    ctx.strokeStyle = `rgba(0, 0, 0, ${(0.1 + line.weight * (centred ? 0.55 : 0.3)) * ink})`;
-    ctx.lineWidth = centred ? 1.2 : 0.8;
+    const written = Boolean(thought) && thought.m > 0.1;
+    const weight = 0.1 + line.weight * (centred ? 0.55 : 0.3);
+    ctx.strokeStyle = `rgba(0, 0, 0, ${(written ? Math.min(0.92, weight + 0.34) : weight) * ink})`;
+    ctx.lineWidth = written ? (centred ? 1.9 : 1.3) : (centred ? 1.1 : 0.75);
     ctx.stroke();
   }
 }
