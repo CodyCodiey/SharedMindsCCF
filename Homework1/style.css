@@ -148,6 +148,8 @@ html, body {
   max-width: 300px;
 }
 
+#language[hidden] { display: none; }
+
 #language {
   margin-left: 6px;
   font-family: "Times New Roman", Times, serif;

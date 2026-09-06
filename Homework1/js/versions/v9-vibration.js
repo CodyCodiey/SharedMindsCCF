@@ -5,6 +5,7 @@ import { isJapanese } from '../shared/lexicon.js';
 export const meta = {
   id: 'vibration',
   title: '9 · Vibration',
+  multilingual: true,
   blurb: 'A field of vibrating strings. The thought being spoken is written out of the middle line in one unbroken stroke, then settles back among the others.',
 };
 

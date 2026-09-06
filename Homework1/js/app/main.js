@@ -17,8 +17,10 @@ const langPicker = document.getElementById('language');
 const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
+// What the user has chosen, and what the version on screen can actually use.
+let preferred = 'en-US';
+try { preferred = localStorage.getItem('soc-lang') || 'en-US'; } catch { /* private mode */ }
 let lang = 'en-US';
-try { lang = localStorage.getItem('soc-lang') || 'en-US'; } catch { /* private mode */ }
 let current = null;
 let ghost = '';
 
@@ -35,6 +37,13 @@ function load(id) {
   const version = VERSIONS.find((v) => v.meta.id === id) || VERSIONS[VERSIONS.length - 1];
   current = version.create();
   ghost = '';
+
+  // Only the version that can write another script offers one.
+  const multilingual = Boolean(version.meta.multilingual);
+  langPicker.hidden = !multilingual;
+  lang = multilingual ? preferred : 'en-US';
+  langPicker.value = preferred;
+  speech.setLang(lang);
   blurbEl.textContent = version.meta.blurb;
   picker.value = version.meta.id;
   current.resize(ctx, window.innerWidth, window.innerHeight);
@@ -50,8 +59,9 @@ function load(id) {
 picker.addEventListener('change', () => load(picker.value));
 
 langPicker.addEventListener('change', () => {
-  lang = langPicker.value;
-  try { localStorage.setItem('soc-lang', lang); } catch { /* private mode */ }
+  preferred = langPicker.value;
+  lang = preferred;
+  try { localStorage.setItem('soc-lang', preferred); } catch { /* private mode */ }
   speech.setLang(lang);
   setStatus(lang.startsWith('ja') ? '日本語' : 'english', undefined);
 });
@@ -166,7 +176,6 @@ document.addEventListener('keydown', (event) => {
   if (n >= 1 && n <= VERSIONS.length) load(VERSIONS[n - 1].meta.id);
 });
 
-langPicker.value = lang;
 if (!speech.supported) setStatus('no speech api — type instead', false);
 
 /* ---- loop ---- */
