@@ -51,6 +51,8 @@ const C = {
   // yarn is pulled out into a thread.
   gapPad: 26,            // clear space either side of the writing
   gapOpenAt: 0.35,       // how much forming is enough to clear the full break
+  floatRise: 1.7,        // how far a piece of line lifts on its way to being a letter
+  floatDrift: 0.3,       // and how far it wanders sideways doing it
   coilRadius: 0.2,         // winding added on top of the chunk, if wanted
   coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
@@ -83,8 +85,8 @@ const C = {
   // A settled thought does not dissolve into the wave; it comes into and out
   // of legibility, swelling and retreating.
   swellPeriodMs: 29000,
-  swellFloor: 0.16,      // faintest it gets
-  swellPeak: 0.88,       // clearest it gets
+  swellFloor: 0.45,      // faintest it gets
+  swellPeak: 1,          // clearest it gets
   backLevelSwing: 0.1,   // its letters barely change height while it does
 
   // A thought gathers presence as it grows.
@@ -106,6 +108,8 @@ export const CONTROLS = [
   { key: 'slant', label: 'How far the hand leans', min: 0, max: 0.5, step: 0.01 , group: 'The hand' },
   { key: 'formMs', label: 'How long one word takes to take shape', min: 200, max: 3000, step: 50 , group: 'Taking shape' },
   { key: 'gapPad', label: 'Clear space either side of the writing', min: 0, max: 80, step: 2 , group: 'Taking shape' },
+  { key: 'floatRise', label: 'How far a piece lifts off the line', min: 0, max: 3, step: 0.05, group: 'Taking shape' },
+  { key: 'floatDrift', label: 'How far it wanders on the way up', min: 0, max: 1.5, step: 0.05, group: 'Taking shape' },
   { key: 'coilRadius', label: 'How far a word winds up before unwinding', min: 0, max: 3, step: 0.05 , group: 'Taking shape' },
   { key: 'coilTurns', label: 'Turns in that winding', min: 0, max: 6, step: 0.1 , group: 'Taking shape' },
   { key: 'coilStagger', label: 'How far a word’s tail lags its head', min: 0, max: 2, step: 0.05 , group: 'Taking shape' },
@@ -122,6 +126,8 @@ export const CONTROLS = [
   { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
   { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
   { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
+  { key: 'swellFloor', label: 'How faint an older sentence gets', min: 0.05, max: 1, step: 0.05, group: 'Coming back' },
+  { key: 'swellPeak', label: 'How clear it gets', min: 0.2, max: 1, step: 0.05, group: 'Coming back' },
   { key: 'swellPeriodMs', label: 'How slowly a recalled fragment breathes', min: 3000, max: 40000, step: 500 , group: 'Coming back' },
   { key: 'recallGapMs', label: 'Least time between two fragments returning', min: 500, max: 10000, step: 100 , group: 'Coming back' },
   { key: 'recallEcho', label: 'How long a fragment outstays the sentence that called it', min: 0, max: 6, step: 0.25 , group: 'Coming back' },
@@ -774,6 +780,20 @@ export function create() {
 
       let px = x;
       let py = py0;
+
+      // A piece of the line does not simply curl up where it lies: it breaks
+      // off, floats up and over, and settles into the letter. The arc peaks
+      // halfway through forming and is nothing at either end, so it leaves
+      // the line cleanly and arrives exactly where it belongs.
+      if (grown > 0.001 && grown < 0.999 && taut < 0.001) {
+        // Timed to the word's own forming, not to anything else, and peaked
+        // early: the piece is still a straight chunk of line when it is
+        // highest, so it detaches, floats, and only then becomes a letter.
+        const arc = Math.sin(Math.PI * Math.pow(grown, 0.45));
+        const sway = ((p.s % 3) - 1) * C.floatDrift;
+        px += sway * em * arc;
+        py -= C.floatRise * em * arc;
+      }
 
       // Before it is a letter it is a piece of the line: a straight chunk
       // lying where the letter will be, which breaks off and curls up into
