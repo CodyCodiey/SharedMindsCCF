@@ -12,7 +12,7 @@
 const ASC = 1.85;
 const DESC = -0.85;
 
-function quad(pts, c, to, steps = 6) {
+function quad(pts, c, to, steps = 4) {
   const from = pts[pts.length - 1];
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;

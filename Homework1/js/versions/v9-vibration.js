@@ -10,10 +10,11 @@ export const meta = {
 const C = {
   lines: 19,
   margin: 46,
-  samples: 260,          // points per line of plain vibration
+  samples: 132,          // points per line of plain vibration
+  minGap: 1.6,           // no closer than this on screen: below a pixel is waste
   modes: 4,
   modeMin: 11,           // high mode numbers: a string, not a swell
-  modeMax: 54,
+  modeMax: 42,           // kept under what the sampling can actually show
   amp: 9,
   ampFalloff: 0.6,
   rate: 0.0042,          // fast enough to read as vibration
@@ -30,7 +31,7 @@ const C = {
   backLevel: 0.5,        // how far a settled thought stays resolved
   holdMs: 34000,         // it stays legible in the field this long
   fadeMs: 9000,
-  keep: 7,               // thoughts held in the background at once
+  keep: 5,               // thoughts held in the background at once
   quiet: 0.85,           // how still the line goes where writing appears
 };
 
@@ -237,17 +238,41 @@ export function create() {
       const eased = m * m * (3 - 2 * m);
       // The letters shiver until they are fully resolved.
       const jitter = (1 - eased) * line.amp * 0.5;
-      for (const p of path.points) {
+      const still = 1 - eased * C.quiet;
+      const gap2 = C.minGap * C.minGap;
+
+      // The line's vibration is sampled coarsely across the writing and
+      // interpolated: letters should ride the string, not be speckled by it.
+      const span = Math.max(1, endX - startX);
+      const taps = Math.max(2, Math.ceil(span / 26));
+      const tap = [];
+      for (let k = 0; k <= taps; k++) {
+        const x = startX + (span * k) / taps;
+        tap.push(vibration(line, x < right ? x : right, now) * still);
+      }
+      let lastX = -1e9;
+      let lastY = -1e9;
+      const pts = path.points;
+
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
         const x = startX + p.x * em;
-        const still = 1 - eased * C.quiet;
-        const shake = jitter
-          ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6 + line.seed) * jitter
-          : 0;
-        points.push({
-          x,
-          y: line.y + vibration(line, Math.min(right, x), now) * still
-             - p.y * em * eased + shake,
-        });
+        const f = ((x - startX) / span) * taps;
+        const k = Math.min(taps - 1, Math.max(0, Math.floor(f)));
+        const ride = tap[k] + (tap[k + 1] - tap[k]) * (f - k);
+        const y = line.y + ride
+          - p.y * em * eased
+          + (jitter
+            ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6 + line.seed) * jitter
+            : 0);
+        // Points closer together than a pixel cost the same to draw and
+        // show nothing, so only keep the ones that move the pen.
+        const dx = x - lastX;
+        const dy = y - lastY;
+        if (i !== pts.length - 1 && dx * dx + dy * dy < gap2) continue;
+        points.push({ x, y });
+        lastX = x;
+        lastY = y;
       }
     }
 

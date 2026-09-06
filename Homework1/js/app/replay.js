@@ -9,7 +9,7 @@ export function createReplay({ onWords, onStatus, onEnd }) {
   let virtual = 0;      // transcript time, ms
   let wall = 0;         // last real timestamp, ms
   let playing = false;
-  let speed = 4;
+  let speed = 1;
   let title = '';
 
   function load(record) {
