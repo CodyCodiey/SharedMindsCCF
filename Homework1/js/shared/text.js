@@ -161,8 +161,11 @@ export function bestFragment(tokens, scores, label, width) {
  * Where one thought ends: the last few content words stop echoing anything
  * the thought has been about, or it simply runs too long.
  */
-export function thoughtEnded(keys, options) {
-  const { min, max, block, threshold } = options;
+export function thoughtEnded(keys, options, spoken = 0) {
+  const { min, max, block, threshold, maxWords = Infinity } = options;
+  // A rambling sentence is mostly grammar, so counting only the content
+  // words lets it run far longer than it sounds. Cap what was actually said.
+  if (spoken >= maxWords) return true;
   if (keys.length >= max) return true;
   if (keys.length < min) return false;
   if (keys.length < block + min) return false;

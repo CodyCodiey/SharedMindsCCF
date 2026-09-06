@@ -45,11 +45,27 @@ const C = {
 
   // Nothing said is ever discarded: it drops into a latent space and comes
   // back when the sentence being spoken reaches for the same words.
-  recallGapMs: 2600,     // the least time between two things resurfacing
+  recallGapMs: 2200,     // the least time between two things resurfacing
   recallWords: 2,        // words either side of the earlier occurrence
-  recallLevel: 0.42,     // how far it resolves when it does
-  recallHoldMs: 7000,
-  recallFadeMs: 4000,
+  recallLevel: 0.72,     // recalls are legible, but only for a moment
+  recallHoldMs: 1900,
+  recallFadeMs: 1100,
+  recallRise: 0.16,      // they arrive quickly, the way a stray thought does
+
+  // Some things surface for no reason at all.
+  burstEveryMs: 7500,
+  burstChance: 0.55,
+
+  // A settled thought does not dissolve into the wave; it comes into and out
+  // of legibility, swelling and retreating.
+  swellPeriodMs: 15000,
+  swellFloor: 0.16,      // faintest it gets
+  swellPeak: 0.88,       // clearest it gets
+  backLevelSwing: 0.1,   // its letters barely change height while it does
+
+  // A thought gathers presence as it grows.
+  growWords: 14,         // words by which it is at full weight
+  growFloor: 0.55,
   quiet: 0.93,           // how still the line goes where writing appears
 };
 
@@ -62,9 +78,10 @@ export function create() {
   let active = null;     // the thought being spoken
   let ghostText = '';
   let nextRecall = 0;
+  let nextBurst = 0;
 
   const thoughts = createThoughts({
-    min: 8, max: 20, pauseMs: 2200,
+    min: 5, max: 10, maxWords: 16, pauseMs: 1500, threshold: 0.13,
     onWords(tokens) {
       if (!active) active = begin();
       for (const tk of tokens) active.words.push(tk.text);
@@ -144,6 +161,7 @@ export function create() {
     thought.back = true;
     thought.at = now;
     thought.target = C.backLevel;
+    thought.swellPhase = Math.random() * Math.PI * 2;
 
     // Take a line away from the middle, alternating up and down the field.
     const taken = new Set(live.filter((t) => t !== thought && t.back).map((t) => t.line));
@@ -178,12 +196,33 @@ export function create() {
     const line = freeLine();
     if (line === null) return;
 
+    surface(text, line, now);
+  }
+
+  /** Put a fragment on a background line, briefly. */
+  function surface(text, line, now) {
     nextRecall = now + C.recallGapMs;
     live.push({
       words: text.split(' '), text, path: null, wordAt: [],
       line, m: 0, target: C.recallLevel,
-      state: 'recalled', at: now, alpha: 1, back: true,
+      state: 'recalled', at: now, alpha: 1, glow: 1, back: true,
+      swellPhase: Math.random() * Math.PI * 2,
     });
+  }
+
+  /**
+   * Nothing said is only ever reached for on purpose. From time to time the
+   * background throws something up unprompted.
+   */
+  function burst(now) {
+    if (history.length < 6) return null;
+    const at = Math.floor(Math.random() * history.length);
+    const text = around(at);
+    if (!text) return null;
+    const line = freeLine();
+    if (line === null) return null;
+    surface(text, line, now);
+    return text;
   }
 
   /** The words either side of one occurrence, as they were said. */
@@ -316,10 +355,33 @@ export function create() {
     tick(now) {
       thoughts.tick(now);
 
+      // Something surfaces unbidden every so often.
+      if (now > nextBurst) {
+        nextBurst = now + C.burstEveryMs * (0.5 + Math.random());
+        if (Math.random() < C.burstChance && now > nextRecall) burst(now);
+      }
+
       for (let i = live.length - 1; i >= 0; i--) {
         const thought = live[i];
-        const ease = thought.target > thought.m ? C.riseEase : C.fallEase;
+        const rise = thought.state === 'recalled' ? C.recallRise : C.riseEase;
+        const ease = thought.target > thought.m ? rise : C.fallEase;
         thought.m += (thought.target - thought.m) * ease;
+
+        // Background writing swells into legibility and retreats again: it is
+        // the ink that comes and goes, not the shape of the letters.
+        if (thought.back && thought.state !== 'sinking') {
+          const swell = 0.5 + 0.5 * Math.sin(
+            (now / C.swellPeriodMs) * Math.PI * 2 + (thought.swellPhase || 0)
+          );
+          thought.glow = C.swellFloor + (C.swellPeak - C.swellFloor) * swell;
+          if (thought.state === 'settled') {
+            thought.target = C.backLevel + C.backLevelSwing * (swell - 0.5);
+          }
+        } else if (!thought.back) {
+          // A thought gathers weight as it accumulates.
+          const grown = Math.min(1, thought.words.length / C.growWords);
+          thought.glow = C.growFloor + (1 - C.growFloor) * grown;
+        }
 
         if (thought.state === 'settled' && now - thought.at > C.holdMs) {
           thought.state = 'fading';
@@ -332,6 +394,7 @@ export function create() {
         if (thought.state === 'sinking') {
           const k = Math.min(1, (now - thought.at) / C.recallFadeMs);
           thought.target = C.recallLevel * (1 - k);
+          thought.glow = (thought.glow ?? 1) * (1 - k * 0.6);
           thought.alpha = 1 - k * 0.85;
           // It goes back to being latent, not gone.
           if (k >= 1) live.splice(i, 1);
@@ -387,7 +450,7 @@ export function create() {
     reset() {
       thoughts.reset();
       live = []; history = []; occurrences = new Map();
-      active = null; ghostText = ''; nextRecall = 0;
+      active = null; ghostText = ''; nextRecall = 0; nextBurst = 0;
       build();
     },
   };
@@ -504,11 +567,13 @@ export function create() {
 
     // Ink follows meaning: a line carrying writing is drawn as writing,
     // heavier and darker than a line that is only vibrating.
-    const ink = thought ? thought.alpha : 1;
+    const ink = thought ? thought.alpha * (thought.glow ?? 1) : 1;
     const written = Boolean(thought) && thought.m > 0.1;
     const weight = 0.1 + line.weight * (centred ? 0.55 : 0.3);
     ctx.strokeStyle = `rgba(0, 0, 0, ${(written ? Math.min(0.92, weight + 0.34) : weight) * ink})`;
-    ctx.lineWidth = written ? (centred ? 1.9 : 1.3) : (centred ? 1.1 : 0.75);
+    ctx.lineWidth = written
+      ? (centred ? 1.9 : 1.3) * (0.6 + 0.4 * (thought.glow ?? 1))
+      : (centred ? 1.1 : 0.75);
     ctx.stroke();
 
     for (const b of brushed) drawBrush(ctx, b);

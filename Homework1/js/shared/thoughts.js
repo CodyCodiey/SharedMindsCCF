@@ -8,6 +8,7 @@ import { tokenize, thoughtEnded, scoreWords, extractTopic } from './text.js';
 export function createThoughts(options = {}) {
   const o = {
     min: 8, max: 20, block: 10, threshold: 0.11,
+    maxWords: Infinity,     // words said, not just the ones that carry meaning
     pauseMs: 3200,
     onWords: () => {},
     onEnd: () => {},
@@ -54,7 +55,7 @@ export function createThoughts(options = {}) {
       }
       state.lastWordAt = t;
       o.onWords(tokens, state.index, t);
-      if (thoughtEnded(state.keys, o)) end(t);
+      if (thoughtEnded(state.keys, o, state.tokens.length)) end(t);
       return tokens;
     },
     tick(now) {
