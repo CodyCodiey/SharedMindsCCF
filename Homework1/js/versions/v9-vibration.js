@@ -46,7 +46,7 @@ const C = {
   wiggleSpread: 0.1,    // cycles of swing per em along the stroke
   slideEase: 0.08,       // how the writing glides left as more arrives
   slideStep: 12,          // ...and never further than this in one frame
-  recallDim: 0.5,        // how much less formed a recall's other words are
+  recallDim: 0.8,        // how much less formed a recall's other words are
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
   gapPad: 26,            // clear space either side of the writing
@@ -56,7 +56,7 @@ const C = {
   coilRadius: 0.2,         // winding added on top of the chunk, if wanted
   coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
-  tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
+  tautPull: 1,           // a straightened line spans exactly its own row, no further
   settleEase: 0.055,     // how a thought travels to the string it settles on
   riseEase: 0.1,
   fallEase: 0.03,
@@ -125,11 +125,13 @@ export const CONTROLS = [
   { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true , group: 'Ending a sentence' },
   { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
   { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
+  { key: 'tautPull', label: 'How far a straightening line overshoots its row', min: 0.9, max: 1.3, step: 0.01, group: 'Ending a sentence' },
   { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
   { key: 'swellFloor', label: 'How faint an older sentence gets', min: 0.05, max: 1, step: 0.05, group: 'Coming back' },
   { key: 'swellPeak', label: 'How clear it gets', min: 0.2, max: 1, step: 0.05, group: 'Coming back' },
   { key: 'swellPeriodMs', label: 'How slowly a recalled fragment breathes', min: 3000, max: 40000, step: 500 , group: 'Coming back' },
   { key: 'recallGapMs', label: 'Least time between two fragments returning', min: 500, max: 10000, step: 100 , group: 'Coming back' },
+  { key: 'recallDim', label: 'How formed the other words of an older sentence are', min: 0.2, max: 1, step: 0.05, group: 'Coming back' },
   { key: 'recallEcho', label: 'How long a fragment outstays the sentence that called it', min: 0, max: 6, step: 0.25 , group: 'Coming back' },
   { key: 'burstEveryMs', label: 'How often something surfaces unprompted', min: 1500, max: 30000, step: 500 , group: 'Coming back' },
   { key: 'lines', label: 'How many strings', min: 5, max: 41, step: 2, rebuild: true , group: 'The strings' },
