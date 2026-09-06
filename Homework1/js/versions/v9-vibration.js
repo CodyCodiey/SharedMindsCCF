@@ -15,15 +15,15 @@ const C = {
   modes: 4,
   modeMin: 11,           // high mode numbers: a string, not a swell
   modeMax: 42,           // kept under what the sampling can actually show
-  amp: 40,
+  amp: 3,
   ampFalloff: 0.6,
-  rate: 0.0095,          // fast enough to read as vibration
-  tremor: 0.14,          // fine unresolved shiver on top
+  rate: 0.0025,          // fast enough to read as vibration
+  tremor: 0,          // fine unresolved shiver on top
   tremorRate: 0.031,
-  tremorPace: 0.55,      // how much faster speech shakes the strings
+  tremorPace: 0.85,      // how much faster speech shakes the strings
   paceWindowMs: 2600,    // the stretch of talk the pace is taken over
 
-  em: 65,                // px per em: a fixed, readable hand
+  em: 41,                // px per em: a fixed, readable hand
 
   // The shape of the hand itself.
   letterHeight: 0.56,    // x-height against the width of the letters
@@ -34,18 +34,18 @@ const C = {
   descender: 1.1,
   roundness: 0.74,
 
-  emBack: 0.82,          // a fragment brought back, against the hand size
+  emBack: 0.9,          // a fragment brought back, against the hand size
   fit: 0.92,             // fraction of the line a thought may fill
   maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
   slant: 0.34,           // a hand writes on the lean, but not so far it hurts
   formMs: 800,          // how long one word takes to find its shape
-  wiggle: 0.55,          // how far it loops about before it settles
-  wiggleRate: 0.018,
-  wiggleSpread: 1.25,    // cycles of swing per em along the stroke
+  wiggle: 0,          // how far it loops about before it settles
+  wiggleRate: 0.001,
+  wiggleSpread: 0.1,    // cycles of swing per em along the stroke
   slideEase: 0.08,       // how the writing glides left as more arrives
-  slideStep: 5,          // ...and never further than this in one frame
+  slideStep: 12,          // ...and never further than this in one frame
   recallDim: 0.5,        // how much less formed a recall's other words are
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
@@ -58,7 +58,7 @@ const C = {
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
-  leaveMs: 2600,         // how long a finished thought takes to unwrite
+  leaveMs: 1700,         // how long a finished thought takes to unwrite
   leaveStagger: 0.75,    // how far the right end leads the left on the way out
 
   // Nothing said is ever discarded: it drops into a latent space and comes
@@ -72,7 +72,7 @@ const C = {
   recallRise: 0.16,      // they arrive quickly, the way a stray thought does
 
   // Where one thought ends. These live here so the panel can reach them.
-  maxWords: 40,          // words said before a thought is cut off
+  maxWords: 20,          // words said before a thought is cut off
   pauseMs: 700,         // silence long enough to end one
 
   // Some things surface for no reason at all.
@@ -81,7 +81,7 @@ const C = {
 
   // A settled thought does not dissolve into the wave; it comes into and out
   // of legibility, swelling and retreating.
-  swellPeriodMs: 26500,
+  swellPeriodMs: 29000,
   swellFloor: 0.16,      // faintest it gets
   swellPeak: 0.88,       // clearest it gets
   backLevelSwing: 0.1,   // its letters barely change height while it does
@@ -89,44 +89,44 @@ const C = {
   // A thought gathers presence as it grows.
   growWords: 14,         // words by which it is at full weight
   growFloor: 0.55,
-  quiet: 0.18,           // how still the line goes where writing appears
+  quiet: 0,           // how still the line goes where writing appears
 };
 
 // What is worth reaching for while it is running.
 export const CONTROLS = [
-  { key: 'em', label: 'hand size', min: 16, max: 80, step: 1 },
-  { key: 'letterHeight', label: 'letter height', min: 0.4, max: 1.4, step: 0.02, shape: true },
-  { key: 'letterWidth', label: 'letter width', min: 0.6, max: 1.8, step: 0.02, shape: true },
-  { key: 'letterSpacing', label: 'letter spacing', min: 0, max: 0.5, step: 0.01, shape: true },
-  { key: 'wordGap', label: 'word spacing', min: 0.1, max: 1.4, step: 0.02, shape: true },
-  { key: 'ascender', label: 'ascender reach', min: 0.3, max: 1.8, step: 0.02, shape: true },
-  { key: 'descender', label: 'descender drop', min: 0.3, max: 1.8, step: 0.02, shape: true },
-  { key: 'roundness', label: 'roundness', min: 0.2, max: 1.9, step: 0.02, shape: true },
-  { key: 'slant', label: 'lean', min: 0, max: 0.5, step: 0.01 },
-  { key: 'formMs', label: 'time to form a word', min: 200, max: 3000, step: 50 },
-  { key: 'gapPad', label: 'gap around the writing', min: 0, max: 80, step: 2 },
-  { key: 'coilRadius', label: 'winding', min: 0, max: 3, step: 0.05 },
-  { key: 'coilTurns', label: 'winds in the ball', min: 0, max: 6, step: 0.1 },
-  { key: 'coilStagger', label: 'unravel stagger', min: 0, max: 2, step: 0.05 },
-  { key: 'wiggle', label: 'wiggle', min: 0, max: 1.2, step: 0.02 },
-  { key: 'wiggleSpread', label: 'wiggle along the stroke', min: 0.1, max: 4, step: 0.05 },
-  { key: 'wiggleRate', label: 'wiggle speed', min: 0.001, max: 0.03, step: 0.001 },
-  { key: 'amp', label: 'vibration', min: 0, max: 40, step: 0.5 },
-  { key: 'rate', label: 'vibration speed', min: 0.0005, max: 0.02, step: 0.0005 },
-  { key: 'tremor', label: 'tremor', min: 0, max: 1.5, step: 0.02 },
-  { key: 'tremorPace', label: 'tremor from speaking pace', min: 0, max: 3, step: 0.05 },
-  { key: 'emBack', label: 'size of a recalled fragment', min: 0.3, max: 1.2, step: 0.02 },
-  { key: 'quiet', label: 'stillness under writing', min: 0, max: 1, step: 0.02 },
-  { key: 'maxWords', label: 'words per thought', min: 4, max: 40, step: 1, thought: true },
-  { key: 'pauseMs', label: 'silence that ends a thought', min: 400, max: 5000, step: 100, thought: true },
-  { key: 'leaveMs', label: 'time to unwrite', min: 600, max: 8000, step: 100 },
-  { key: 'leaveStagger', label: 'right-to-left lead', min: 0, max: 2, step: 0.05 },
-  { key: 'swellPeriodMs', label: 'swell of the background', min: 3000, max: 40000, step: 500 },
-  { key: 'recallGapMs', label: 'gap between recalls', min: 500, max: 10000, step: 100 },
-  { key: 'recallEcho', label: 'how long a link lingers', min: 0, max: 6, step: 0.25 },
-  { key: 'burstEveryMs', label: 'time between bursts', min: 1500, max: 30000, step: 500 },
-  { key: 'lines', label: 'strings', min: 5, max: 41, step: 2, rebuild: true },
-  { key: 'slideStep', label: 'glide speed', min: 1, max: 30, step: 1 },
+  { key: 'em', label: 'How big the handwriting is', min: 16, max: 80, step: 1 , group: 'The hand' },
+  { key: 'letterHeight', label: 'Letter height, against their width', min: 0.4, max: 1.4, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'letterWidth', label: 'Letter width', min: 0.6, max: 1.8, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'letterSpacing', label: 'Space between letters', min: 0, max: 0.5, step: 0.01, shape: true , group: 'The hand' },
+  { key: 'wordGap', label: 'Space between words', min: 0.1, max: 1.4, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'ascender', label: 'How far tall letters reach up', min: 0.3, max: 1.8, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'descender', label: 'How far tails drop below the line', min: 0.3, max: 1.8, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'roundness', label: 'How roundly the pen turns corners', min: 0.2, max: 1.9, step: 0.02, shape: true , group: 'The hand' },
+  { key: 'slant', label: 'How far the hand leans', min: 0, max: 0.5, step: 0.01 , group: 'The hand' },
+  { key: 'formMs', label: 'How long one word takes to take shape', min: 200, max: 3000, step: 50 , group: 'Taking shape' },
+  { key: 'gapPad', label: 'Clear space either side of the writing', min: 0, max: 80, step: 2 , group: 'Taking shape' },
+  { key: 'coilRadius', label: 'How far a word winds up before unwinding', min: 0, max: 3, step: 0.05 , group: 'Taking shape' },
+  { key: 'coilTurns', label: 'Turns in that winding', min: 0, max: 6, step: 0.1 , group: 'Taking shape' },
+  { key: 'coilStagger', label: 'How far a word’s tail lags its head', min: 0, max: 2, step: 0.05 , group: 'Taking shape' },
+  { key: 'wiggle', label: 'How much a forming word loops about', min: 0, max: 1.2, step: 0.02 , group: 'Taking shape' },
+  { key: 'wiggleSpread', label: 'How quickly that looping varies along the stroke', min: 0.1, max: 4, step: 0.05 , group: 'Taking shape' },
+  { key: 'wiggleRate', label: 'How fast it loops', min: 0.001, max: 0.03, step: 0.001 , group: 'Taking shape' },
+  { key: 'amp', label: 'How much the strings move on their own', min: 0, max: 40, step: 0.5 , group: 'The strings' },
+  { key: 'rate', label: 'How fast they vibrate', min: 0.0005, max: 0.02, step: 0.0005 , group: 'The strings' },
+  { key: 'tremor', label: 'Fine shiver on top, always present', min: 0, max: 1.5, step: 0.02 , group: 'The strings' },
+  { key: 'tremorPace', label: 'How much faster talking shakes them', min: 0, max: 3, step: 0.05 , group: 'The strings' },
+  { key: 'emBack', label: 'Size of a sentence brought back', min: 0.3, max: 1.2, step: 0.02 , group: 'Coming back' },
+  { key: 'quiet', label: 'How still a string goes under its writing', min: 0, max: 1, step: 0.02 , group: 'The strings' },
+  { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true , group: 'Ending a sentence' },
+  { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
+  { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
+  { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
+  { key: 'swellPeriodMs', label: 'How slowly a recalled fragment breathes', min: 3000, max: 40000, step: 500 , group: 'Coming back' },
+  { key: 'recallGapMs', label: 'Least time between two fragments returning', min: 500, max: 10000, step: 100 , group: 'Coming back' },
+  { key: 'recallEcho', label: 'How long a fragment outstays the sentence that called it', min: 0, max: 6, step: 0.25 , group: 'Coming back' },
+  { key: 'burstEveryMs', label: 'How often something surfaces unprompted', min: 1500, max: 30000, step: 500 , group: 'Coming back' },
+  { key: 'lines', label: 'How many strings', min: 5, max: 41, step: 2, rebuild: true , group: 'The strings' },
+  { key: 'slideStep', label: 'How fast writing slides into place', min: 1, max: 30, step: 1 , group: 'Taking shape' },
 ];
 
 export function create() {
@@ -623,8 +623,14 @@ export function create() {
     const near = placed.filter((p) => Math.abs(p.y - line.y) < spacing() * 0.55);
 
     const holes = near.map((p) => {
-      const centreX = p.startX + p.width / 2;
-      const half = (p.width / 2 + C.gapPad) * p.eased;
+      // While the words form, the break opens from the middle outward.
+      // While they unwrite, its right edge follows them back leftward, so
+      // the string closes at the same rate rather than all at once.
+      const leaving = p.thought.taut || 0;
+      const a = p.startX - C.gapPad;
+      const b = p.startX + p.width * (1 - leaving) + C.gapPad;
+      const centreX = (a + b) / 2;
+      const half = ((b - a) / 2) * p.eased;
       return [centreX - half, centreX + half];
     }).filter(([a, b]) => b - a > 1);
 

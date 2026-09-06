@@ -38,7 +38,10 @@ for (const version of VERSIONS) {
 
 let defaults = null;
 
-/** Sliders for whatever the version on screen says is worth reaching for. */
+/**
+ * The panel, in sections. Only one section is open at a time, so there is
+ * never more on screen than can be taken in at once.
+ */
 function buildPanel(version) {
   knobs.textContent = '';
   exported.hidden = true;
@@ -53,84 +56,81 @@ function buildPanel(version) {
   }
   defaults = { ...current.config };
 
+  const groups = new Map();
   for (const spec of specs) {
-    const wrap = document.createElement('div');
-    wrap.className = 'knob';
-    const label = document.createElement('label');
-    const name = document.createElement('span');
-    name.textContent = spec.label;
-    const value = document.createElement('b');
+    const name = spec.group || 'Everything else';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(spec);
+  }
 
-    // Some settings are a choice rather than an amount.
-    if (spec.type === 'choice') {
-      const select = document.createElement('select');
-      select.className = 'choice';
-      for (const option of spec.options) {
-        const item = document.createElement('option');
-        item.value = option;
-        item.textContent = option;
-        select.append(item);
-      }
-      select.value = current.config[spec.key];
-      select.addEventListener('change', () => current.set(spec.key, select.value));
-      label.append(name);
-      wrap.append(label, select);
-      knobs.append(wrap);
-      spec.input = select;
-      continue;
-    }
-
-    const input = document.createElement('input');
-    input.type = 'range';
-    input.min = spec.min;
-    input.max = spec.max;
-    input.step = spec.step;
-    input.value = current.config[spec.key];
-    const show = () => { value.textContent = Number(input.value).toString(); };
-    show();
-    input.addEventListener('input', () => {
-      current.set(spec.key, Number(input.value));
-      show();
+  const sections = [];
+  const openOnly = (which) => {
+    sections.forEach((s, i) => {
+      s.body.hidden = i !== which;
+      s.head.className = i === which ? 'section open' : 'section';
     });
-    label.append(name, value);
-    wrap.append(label, input);
-    knobs.append(wrap);
-    spec.input = input;
-  }
-}
+  };
 
-/**
- * The current settings, written as the config block they came from, so a
- * setting found by ear can be pasted back into the version and kept.
- */
-function exportSettings() {
-  const version = VERSIONS.find((v) => v.meta.id === picker.value);
-  if (!version || !version.CONTROLS || !current.config) return '';
-  const width = Math.max(...version.CONTROLS.map((c) => c.key.length));
-  const lines = version.CONTROLS.map((spec) => {
-    const raw = current.config[spec.key];
-    const value = typeof raw === 'string' ? `'${raw}'` : raw;
-    const changed = defaults && defaults[spec.key] !== raw;
-    return `  ${(spec.key + ':').padEnd(width + 1)} ${value},`
-      + `${changed ? `   // was ${defaults[spec.key]}` : ''}`;
+  [...groups.entries()].forEach(([name, members], index) => {
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'section';
+    head.textContent = name;
+    head.addEventListener('click', () => openOnly(index));
+
+    const body = document.createElement('div');
+    body.className = 'section-body';
+    for (const spec of members) body.append(knobFor(spec));
+
+    knobs.append(head, body);
+    sections.push({ head, body });
   });
-  return `// ${version.meta.title}\nconst C = {\n${lines.join('\n')}\n};`;
+  openOnly(0);
 }
 
-exportButton.addEventListener('click', async () => {
-  const text = exportSettings();
-  if (!text) return;
-  exportText.value = text;
-  exported.hidden = false;
-  try {
-    await navigator.clipboard.writeText(text);
-    exportNote.textContent = 'copied to the clipboard';
-  } catch {
-    // Clipboard access can be refused; the text is there to copy by hand.
-    exportText.select();
-    exportNote.textContent = 'select and copy';
+/** One labelled slider, wired to the running piece. */
+function knobFor(spec) {
+  const wrap = document.createElement('div');
+  wrap.className = 'knob';
+  const label = document.createElement('label');
+  const name = document.createElement('span');
+  name.textContent = spec.label;
+  const value = document.createElement('b');
+
+  if (spec.type === 'choice') {
+    const select = document.createElement('select');
+    select.className = 'choice';
+    for (const option of spec.options) {
+      const item = document.createElement('option');
+      item.value = option;
+      item.textContent = option;
+      select.append(item);
+    }
+    select.value = current.config[spec.key];
+    select.addEventListener('change', () => current.set(spec.key, select.value));
+    label.append(name);
+    wrap.append(label, select);
+    spec.input = select;
+    return wrap;
   }
-});
+
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = spec.min;
+  input.max = spec.max;
+  input.step = spec.step;
+  input.value = current.config[spec.key];
+  const show = () => { value.textContent = Number(input.value).toString(); };
+  show();
+  input.addEventListener('input', () => {
+    current.set(spec.key, Number(input.value));
+    show();
+  });
+  label.append(name, value);
+  wrap.append(label, input);
+  spec.input = input;
+  return wrap;
+}
 
 resetButton.addEventListener('click', () => {
   if (!defaults || !current.config) return;
