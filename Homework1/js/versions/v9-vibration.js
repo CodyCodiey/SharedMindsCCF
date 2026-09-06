@@ -1,6 +1,5 @@
 import { createThoughts } from '../shared/thoughts.js';
-import { writePhrase, canWrite, HAND } from '../shared/cursive.js';
-import { isJapanese } from '../shared/lexicon.js';
+import { writePhrase, HAND } from '../shared/cursive.js';
 
 export const meta = {
   id: 'vibration',
@@ -38,11 +37,6 @@ const C = {
   maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
-  // Which hand writes. The generated one is drawn stroke by stroke as part
-  // of the line itself; the rest are faces, set on the line and rising out
-  // of it — less literally the wave, but far easier to read.
-  hand: 'Snell Roundhand',
-  brushFont: '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif',
   slant: 0.17,           // a hand writes on the lean, but not so far it hurts
   formMs: 1300,          // how long one word takes to find its shape
   wiggle: 0.55,          // how far it loops about before it settles
@@ -97,20 +91,7 @@ const C = {
 };
 
 // What is worth reaching for while it is running.
-export const HANDS = [
-  'Snell Roundhand',
-  'Savoye LET',
-  'Apple Chancery',
-  'Brush Script MT',
-  'SignPainter-HouseScript',
-  'Zapfino',
-  'Bradley Hand',
-  'Noteworthy Light',
-  'generated',
-];
-
 export const CONTROLS = [
-  { key: 'hand', label: 'hand', type: 'choice', options: HANDS, shape: true },
   { key: 'em', label: 'hand size', min: 16, max: 80, step: 1 },
   { key: 'letterHeight', label: 'letter height', min: 0.4, max: 1.4, step: 0.02, shape: true },
   { key: 'letterWidth', label: 'letter width', min: 0.6, max: 1.8, step: 0.02, shape: true },
@@ -299,11 +280,7 @@ export function create() {
     const from = Math.max(0, index - C.recallWords);
     const to = Math.min(history.length, index + C.recallWords + 1);
     const words = history.slice(from, to).map((tk) => tk.text);
-    // Japanese sets without spaces between its words.
-    return {
-      text: words.join(words.some((w) => isJapanese(w)) ? '' : ' '),
-      focus: index - from,
-    };
+    return { text: words.join(' '), focus: index - from };
   }
 
   /** A line away from the middle that nothing is currently written on. */
@@ -330,10 +307,7 @@ export function create() {
   function pathOf(thought) {
     if (!thought.path) {
       useHand();
-      thought.drawn = C.hand === 'generated' && canWrite(thought.text);
-      thought.path = thought.drawn
-        ? writePhrase(thought.text)
-        : { points: [], width: 0.001, words: thought.text.split(/\s+/).length };
+      thought.path = writePhrase(thought.text);
 
       // How far along the stroke each point lies. A word pulled straight
       // spaces its points by this, so the loops unfurl rather than collapse.
@@ -373,37 +347,7 @@ export function create() {
     return thought.path;
   }
 
-  /** Rows for text written in a face: broken between words by measured width. */
-  function faceOf() {
-    if (C.hand === 'generated') return C.brushFont;
-    const fallback = C.hand === 'Snell Roundhand' ? '' : '"Snell Roundhand", ';
-    return `"${C.hand}", ${fallback}cursive`;
-  }
 
-  function brushRows(ctx, thought) {
-    const em = emOf(thought);
-    ctx.font = `${em}px ${faceOf()}`;
-    const room = (size.w - C.margin * 2) * C.fit;
-    const rows = [];
-    let row = null;
-    let index = 0;
-
-    const parts = thought.text.includes(' ')
-      ? thought.text.split(/\s+/)
-      : [...thought.text];      // unspaced script: set it character by character
-    for (const word of parts) {
-      if (!word) { index++; continue; }
-      const w = ctx.measureText(word).width;
-      const space = ctx.measureText(' ').width;
-      if (row && row.width + space + w > room) { rows.push(row); row = null; }
-      if (!row) row = { words: [], width: 0 };
-      row.words.push({ text: word, w, at: row.width + (row.words.length ? space : 0), index });
-      row.width += w + (row.words.length > 1 ? space : 0);
-      index++;
-    }
-    if (row) rows.push(row);
-    return rows;
-  }
 
   function emOf(thought) {
     return thought.em || (thought.back ? C.em * C.emBack : C.em);
@@ -442,7 +386,6 @@ export function create() {
       return thought.rows;
     }
     const path = pathOf(thought);
-    if (!thought.drawn) return thought.rows || [];
     const room = (size.w - C.margin * 2) * C.fit;
 
     let em = ideal;
@@ -565,14 +508,7 @@ export function create() {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      for (const t of live) {
-        pathOf(t);
-        if (!t.drawn && (!t.rows || t.rowsAt !== size.w)) {
-          t.rows = brushRows(ctx, t);
-          t.rowsAt = size.w;
-          t.em = emOf(t);
-        }
-      }
+      for (const t of live) pathOf(t);
 
       // Where everything sits this frame, so the strings know what to leave
       // room for before they are drawn.
@@ -628,7 +564,7 @@ export function create() {
 
     for (const thought of live) {
       if (thought.m <= 0.004) continue;
-      const rows = thought.drawn ? rowsOf(thought) : (thought.rows || []);
+      const rows = rowsOf(thought);
       if (!rows.length) continue;
 
       const wantY = (lines[thought.line] || lines[0]).y;
@@ -639,7 +575,7 @@ export function create() {
 
       rows.forEach((row, rowIndex) => {
         const em = thought.emNow;
-        const width = thought.drawn ? (row.x1 - row.x0) * em : row.width * (em / wantEm);
+        const width = (row.x1 - row.x0) * em;
         const y = thought.yNow + rowIndex * gapH;
 
         thought.sx = thought.sx || [];
@@ -692,9 +628,12 @@ export function create() {
     }
     if (strung.length > 1) runs.push(strung);
 
+    if (!runs.length) return;
     ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
     ctx.lineWidth = centred ? 1.1 : 0.75;
-    for (const piece of runs) { curve(ctx, piece); ctx.stroke(); }
+    ctx.beginPath();
+    for (const piece of runs) addCurve(ctx, piece);
+    ctx.stroke();
   }
 
   function drawWriting(ctx, placement, now) {
@@ -706,10 +645,6 @@ export function create() {
 
     // The string itself, running the whole width and going still under
     // whatever is written on it.
-    if (!thought.drawn) {
-      drawBrush(ctx, { thought, row, line, startX, eased, now, em, y });
-      return;
-    }
 
     // The writing: each letter its own mark, rising out of the string.
     const pts = path.points;
@@ -744,13 +679,12 @@ export function create() {
     let lastY = -1e9;
     const ink = thought.alpha * (thought.glow ?? 1);
 
+    // Every mark of this thought shares one colour and one weight, so they
+    // are gathered into a single path and stroked once.
+    ctx.beginPath();
+    let anyMark = false;
     const flush = () => {
-      if (letter.length > 1) {
-        curve(ctx, letter);
-        ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink})`;
-        ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
-        ctx.stroke();
-      }
+      if (letter.length > 1) { addCurve(ctx, letter); anyMark = true; }
       letter = [];
     };
 
@@ -840,65 +774,25 @@ export function create() {
       lastY = py;
     }
     flush();
+    if (anyMark) {
+      ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink})`;
+      ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
+      ctx.stroke();
+    }
 
     // The joins come in with the dissolve, so the marks knit back together.
     if (joins.length && leaving > 0.01) {
       ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink * leaving})`;
       ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
+      ctx.beginPath();
       for (const [a, b] of joins) {
-        ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
-        ctx.stroke();
       }
+      ctx.stroke();
     }
   }
 
-  /**
-   * Words set in a face, each rising out of the line in its own time — the
-   * same emergence as the written hand, for scripts it cannot draw.
-   */
-  function drawBrush(ctx, { thought, row, line, startX, eased, now }) {
-    const em = emOf(thought);
-    ctx.font = `${em}px ${faceOf()}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    while (thought.wordAt.length < row.words[row.words.length - 1].index + 1) {
-      thought.wordAt.push(now);
-    }
-
-    const leaving = thought.taut || 0;
-    const glow = thought.glow ?? 1;
-
-    for (const word of row.words) {
-      const born = thought.wordAt[word.index] ?? now;
-      const age = (now - born) / C.formMs;
-      const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
-      // In something recalled, only the word that reached back forms fully.
-      const dim = thought.focusWord === undefined || thought.focusWord === word.index
-        ? 1 : C.recallDim;
-      const lm = Math.max(0.02, grown * eased * dim * (1 - taut));
-      const loose = 1 - lm;
-      const swing = loose * C.wiggle * em * (1 - taut);
-      const phase = now * C.wiggleRate + word.at * C.wiggleSpread * 0.05 + line.seed;
-
-      // Leaving, the words draw apart along the line as they flatten onto it.
-      const spread = 1 + taut * (C.tautPull - 1) * 3;
-      const x = startX + word.at * spread + Math.cos(phase) * swing;
-
-      ctx.save();
-      ctx.translate(
-        x,
-        line.y + vibration(line, Math.min(x, size.w - C.margin), now) * (1 - eased * C.quiet)
-          + Math.sin(phase * 1.3) * swing * 0.7
-      );
-      ctx.scale(1, lm);
-      ctx.lineWidth = 1.1 / Math.max(lm, 0.12);
-      ctx.strokeStyle = `rgba(0, 0, 0, ${(0.25 + lm * 0.65) * thought.alpha * glow})`;
-      ctx.strokeText(word.text, 0, em * 0.34);
-      ctx.restore();
-    }
-  }
 }
 
 /**
@@ -907,6 +801,15 @@ export function create() {
  */
 function curve(ctx, pts) {
   ctx.beginPath();
+  addCurve(ctx, pts);
+}
+
+/**
+ * Append a curve to whatever path is open. Every stroke() is a separate
+ * rasterised path, so anything sharing a colour and a weight is gathered
+ * into one path and stroked once.
+ */
+function addCurve(ctx, pts) {
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length - 1; i++) {
     const next = pts[i + 1];
