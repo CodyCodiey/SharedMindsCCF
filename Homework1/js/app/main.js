@@ -281,15 +281,28 @@ if (!speech.supported) setStatus('no speech api — type instead', false);
 
 /* ---- loop ---- */
 
+let complained = '';
+
 function frame() {
   const now = clock();
-  replay.tick();
-  if (current) {
-    current.ghost(ghost);
-    current.tick(now, ctx);
-    current.draw(ctx, now);
+  try {
+    replay.tick();
+    if (current) {
+      current.ghost(ghost);
+      current.tick(now, ctx);
+      current.draw(ctx, now);
+    }
+    if (replay.active) progressBar.style.width = `${replay.progress() * 100}%`;
+  } catch (err) {
+    // One throw used to end the animation for good, leaving a blank page
+    // and no clue why. Say what happened and carry on.
+    const said = String(err && err.message ? err.message : err);
+    if (said !== complained) {
+      complained = said;
+      setStatus(said.slice(0, 60), undefined);
+      console.error(err);
+    }
   }
-  if (replay.active) progressBar.style.width = `${replay.progress() * 100}%`;
   requestAnimationFrame(frame);
 }
 

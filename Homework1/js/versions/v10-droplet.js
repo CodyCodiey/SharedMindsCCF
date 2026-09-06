@@ -373,6 +373,10 @@ export function create() {
 
   /** One ring of the pool, wobbling, optionally broken over a span of angle. */
   function addRing(ctx, at, r, seed, now, hole) {
+    // A real canvas throws on a radius that is negative or not a number,
+    // and one throw in the drawing loop used to end the animation for good.
+    if (!Number.isFinite(r) || r <= 0 || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return;
+    if (hole && (!Number.isFinite(hole[0]) || !Number.isFinite(hole[1]))) hole = null;
     // With no wobble asked for, these are true circles — drawn as arcs
     // rather than as a great many short straight pieces.
     if (C.wobble === 0) {
@@ -421,6 +425,8 @@ export function create() {
     ctx.strokeStyle = `rgba(0, 0, 0, ${0.3 * ink})`;
     ctx.lineWidth = 0.9;
     ctx.stroke();
+
+    if (!Number.isFinite(R) || R <= 0) return;
 
     const pts = path.points;
     const run = path.run;
