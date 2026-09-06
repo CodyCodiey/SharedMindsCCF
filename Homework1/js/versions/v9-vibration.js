@@ -46,7 +46,7 @@ const C = {
   wiggleSpread: 0.1,    // cycles of swing per em along the stroke
   slideEase: 0.08,       // how the writing glides left as more arrives
   slideStep: 12,          // ...and never further than this in one frame
-  recallDim: 0.8,        // how much less formed a recall's other words are
+  recallDim: 1,          // the other words of an older sentence form fully too
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
   gapPad: 26,            // clear space either side of the writing
@@ -57,6 +57,7 @@ const C = {
   coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1,           // a straightened line spans exactly its own row, no further
+  driftAway: 1,          // how far down the string the piece runs before it is gone
   settleEase: 0.055,     // how a thought travels to the string it settles on
   riseEase: 0.1,
   fallEase: 0.03,
@@ -125,6 +126,7 @@ export const CONTROLS = [
   { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true , group: 'Ending a sentence' },
   { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
   { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
+  { key: 'driftAway', label: 'How far it runs off down the string', min: 0, max: 1, step: 0.05, group: 'Ending a sentence' },
   { key: 'tautPull', label: 'How far a straightening line overshoots its row', min: 0.9, max: 1.3, step: 0.01, group: 'Ending a sentence' },
   { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
   { key: 'swellFloor', label: 'How faint an older sentence gets', min: 0.05, max: 1, step: 0.05, group: 'Coming back' },
@@ -488,6 +490,8 @@ export function create() {
         if (thought.state === 'leaving') {
           const k = Math.min(1, (now - thought.at) / C.leaveMs);
           thought.taut = k;
+          // It fades as it travels, so it is gone by the end of the string.
+          thought.alpha = 1 - k * 0.92;
           // Once it has gone back into the line there is nothing left of it.
           if (k >= 1) {
             // Remember when it went, so anything it called back knows how
@@ -821,9 +825,15 @@ export function create() {
       }
 
       if (taut > 0 && run) {
+        // Straightened, the piece does not simply stop where the sentence
+        // did: it runs off down the rest of its string, riding the vibration
+        // as it goes, and fades out along the way.
         const along = (run[i] - runFrom) / runLen;
-        px = x + (startX + along * tautWidth - x) * taut;
-        py = py0 + (y + ride - py0) * taut;
+        const flat = startX + along * tautWidth;
+        const away = flat + (right - flat) * taut * C.driftAway;
+        px = x + (away - x) * taut;
+        const onLine = y + vibration(line, away < right ? away : right, now);
+        py = py0 + (onLine - py0) * taut;
       }
 
       // Once a point has fully returned to the string, the string itself is
