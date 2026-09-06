@@ -634,11 +634,23 @@ export function create() {
       return [centreX - half, centreX + half];
     }).filter(([a, b]) => b - a > 1);
 
+    // Sample the string in even steps, but always land exactly on the
+    // margins and on the edges of every break — otherwise the ends and the
+    // gaps sit wherever the sampling happened to fall, up to a step out.
+    const stops = [left, right];
+    for (const [a, b] of holes) {
+      if (a > left && a < right) stops.push(a);
+      if (b > left && b < right) stops.push(b);
+    }
     const step = (right - left) / C.samples;
+    for (let i = 1; i < C.samples; i++) stops.push(left + i * step);
+    stops.sort((p, q) => p - q);
+
     const runs = [];
     let strung = [];
-    for (let x = left; x <= right; x += step) {
-      if (holes.some(([a, b]) => x > a && x < b)) {
+    for (const x of stops) {
+      const inside = holes.some(([a, b]) => x > a && x < b);
+      if (inside) {
         if (strung.length > 1) runs.push(strung);
         strung = [];
         continue;
