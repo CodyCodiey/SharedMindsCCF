@@ -57,7 +57,6 @@ const C = {
   coilTurns: 0.8,
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1,           // a straightened line spans exactly its own row, no further
-  driftAway: 1,          // how far down the string the piece runs before it is gone
   dissolveFeather: 90,   // how soft the edge of the dissolve is as it travels
   reviveEase: 0.03,      // how slowly a string comes back once the sentence has gone
   settleEase: 0.055,     // how a thought travels to the string it settles on
@@ -130,7 +129,6 @@ export const CONTROLS = [
   { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
   { key: 'dissolveFeather', label: 'How soft the dissolving edge is', min: 10, max: 400, step: 10, group: 'Ending a sentence' },
   { key: 'reviveEase', label: 'How slowly the string comes back', min: 0.005, max: 0.2, step: 0.005, group: 'Ending a sentence' },
-  { key: 'driftAway', label: 'How far it runs off down the string', min: 0, max: 1, step: 0.05, group: 'Ending a sentence' },
   { key: 'tautPull', label: 'How far a straightening line overshoots its row', min: 0.9, max: 1.3, step: 0.01, group: 'Ending a sentence' },
   { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
   { key: 'swellFloor', label: 'How faint an older sentence gets', min: 0.05, max: 1, step: 0.05, group: 'Coming back' },
@@ -852,15 +850,10 @@ export function create() {
       }
 
       if (taut > 0 && run) {
-        // Straightened, the piece does not simply stop where the sentence
-        // did: it runs off down the rest of its string, riding the vibration
-        // as it goes, and fades out along the way.
+        // Straightened, the piece lies down exactly where it was written.
         const along = (run[i] - runFrom) / runLen;
-        const flat = startX + along * tautWidth;
-        const away = flat + (right - flat) * taut * C.driftAway;
-        px = x + (away - x) * taut;
-        const onLine = y + vibration(line, away < right ? away : right, now);
-        py = py0 + (onLine - py0) * taut;
+        px = x + (startX + along * tautWidth - x) * taut;
+        py = py0 + (y + ride - py0) * taut;
       }
 
       // Once a point has fully returned to the string, the string itself is
