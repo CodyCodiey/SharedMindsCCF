@@ -13,9 +13,12 @@ const speedButton = document.getElementById('speed');
 const playButton = document.getElementById('playpause');
 const progressBar = document.querySelector('#progress span');
 const picker = document.getElementById('version');
+const langPicker = document.getElementById('language');
 const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
+let lang = 'en-US';
+try { lang = localStorage.getItem('soc-lang') || 'en-US'; } catch { /* private mode */ }
 let current = null;
 let ghost = '';
 
@@ -46,6 +49,13 @@ function load(id) {
 
 picker.addEventListener('change', () => load(picker.value));
 
+langPicker.addEventListener('change', () => {
+  lang = langPicker.value;
+  try { localStorage.setItem('soc-lang', lang); } catch { /* private mode */ }
+  speech.setLang(lang);
+  setStatus(lang.startsWith('ja') ? '日本語' : 'english', undefined);
+});
+
 /* ---- input ---- */
 
 function fitCanvas() {
@@ -73,6 +83,7 @@ function setStatus(text, listening) {
 }
 
 const speech = createSpeech({
+  lang,
   onPhrase(text, isFinal) {
     if (isFinal) { ghost = ''; speak(text, clock()); }
     else ghost = text;
@@ -110,7 +121,7 @@ async function loadVideo(url) {
     const res = await fetch('/api/transcript', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, lang: lang.startsWith('ja') ? 'ja' : 'en' }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'could not fetch that video');
@@ -155,6 +166,7 @@ document.addEventListener('keydown', (event) => {
   if (n >= 1 && n <= VERSIONS.length) load(VERSIONS[n - 1].meta.id);
 });
 
+langPicker.value = lang;
 if (!speech.supported) setStatus('no speech api — type instead', false);
 
 /* ---- loop ---- */

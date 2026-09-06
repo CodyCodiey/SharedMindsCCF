@@ -1,5 +1,6 @@
 import { createThoughts } from '../shared/thoughts.js';
-import { writePhrase } from '../shared/cursive.js';
+import { writePhrase, canWrite } from '../shared/cursive.js';
+import { isJapanese } from '../shared/lexicon.js';
 
 export const meta = {
   id: 'vibration',
@@ -27,6 +28,9 @@ const C = {
   maxRows: 6,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
+  // The generated hand only knows the latin alphabet. Anything else is
+  // written in a face instead, still rising out of the line it sits on.
+  brushFont: '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif',
   slant: 0.26,           // a hand writes on the lean
   formMs: 1100,          // how long one word takes to find its shape
   wiggle: 0.42,          // how far it loops about before it settles
@@ -185,7 +189,9 @@ export function create() {
   function around(index) {
     const from = Math.max(0, index - C.recallWords);
     const to = Math.min(history.length, index + C.recallWords + 1);
-    return history.slice(from, to).map((tk) => tk.text).join(' ');
+    const words = history.slice(from, to).map((tk) => tk.text);
+    // Japanese sets without spaces between its words.
+    return words.join(words.some((w) => isJapanese(w)) ? '' : ' ');
   }
 
   /** A line away from the middle that nothing is currently written on. */
@@ -199,8 +205,39 @@ export function create() {
 
   /** Cursive is generated once per thought and reused until its text grows. */
   function pathOf(thought) {
-    if (!thought.path) thought.path = writePhrase(thought.text);
+    if (!thought.path) {
+      thought.drawn = canWrite(thought.text);
+      thought.path = thought.drawn
+        ? writePhrase(thought.text)
+        : { points: [], width: 0.001, words: thought.text.split(/\s+/).length };
+    }
     return thought.path;
+  }
+
+  /** Rows for text written in a face: broken between words by measured width. */
+  function brushRows(ctx, thought) {
+    const em = emOf(thought);
+    ctx.font = `${em}px ${C.brushFont}`;
+    const room = (size.w - C.margin * 2) * C.fit;
+    const rows = [];
+    let row = null;
+    let index = 0;
+
+    const parts = thought.text.includes(' ')
+      ? thought.text.split(/\s+/)
+      : [...thought.text];      // unspaced script: set it character by character
+    for (const word of parts) {
+      if (!word) { index++; continue; }
+      const w = ctx.measureText(word).width;
+      const space = ctx.measureText(' ').width;
+      if (row && row.width + space + w > room) { rows.push(row); row = null; }
+      if (!row) row = { words: [], width: 0 };
+      row.words.push({ text: word, w, at: row.width + (row.words.length ? space : 0), index });
+      row.width += w + (row.words.length > 1 ? space : 0);
+      index++;
+    }
+    if (row) rows.push(row);
+    return rows;
   }
 
   function emOf(thought) {
@@ -240,6 +277,7 @@ export function create() {
       return thought.rows;
     }
     const path = pathOf(thought);
+    if (!thought.drawn) return thought.rows || [];
     const room = (size.w - C.margin * 2) * C.fit;
 
     let em = ideal;
@@ -313,13 +351,22 @@ export function create() {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
+      for (const t of live) {
+        pathOf(t);
+        if (!t.drawn && (!t.rows || t.rowsAt !== size.w)) {
+          t.rows = brushRows(ctx, t);
+          t.rowsAt = size.w;
+          t.em = emOf(t);
+        }
+      }
+
       lines.forEach((line, index) => {
         // Whichever thought has a row on this string writes it here.
         let thought = null;
         let row = null;
         for (const t of live) {
           if (t.m <= 0.004) continue;
-          const rows = rowsOf(t);
+          const rows = t.drawn ? rowsOf(t) : (t.rows || []);
           const which = index - t.line;
           if (which >= 0 && which < rows.length) { thought = t; row = rows[which]; break; }
         }
@@ -362,19 +409,30 @@ export function create() {
     if (thought) {
       path = pathOf(thought);
       em = emOf(thought);
-      const width = (row.x1 - row.x0) * em;
+      const width = thought.drawn ? (row.x1 - row.x0) * em : row.width;
       startX = Math.max(left, (size.w - width) / 2);
       endX = Math.min(right, startX + width);
     }
 
     const step = (right - left) / C.samples;
     const points = [];
+    const brushed = [];
 
     for (let x = left; x < startX; x += step) {
       points.push({ x, y: line.y + vibration(line, x, now) });
     }
 
-    if (thought) {
+    if (thought && !thought.drawn) {
+      // A face, not the generated hand: the line runs quietly beneath while
+      // the words rise out of it.
+      const m = Math.min(1, thought.m);
+      const eased = m * m * (3 - 2 * m);
+      const still = 1 - eased * C.quiet;
+      for (let x = startX; x <= endX; x += (endX - startX) / 8 || 1) {
+        points.push({ x, y: line.y + vibration(line, x, now) * still });
+      }
+      brushed.push({ thought, row, line, startX, eased, now });
+    } else if (thought) {
       const m = Math.min(1, thought.m);
       const eased = m * m * (3 - 2 * m);
       // The letters shiver until they are fully resolved.
@@ -451,6 +509,44 @@ export function create() {
     ctx.strokeStyle = `rgba(0, 0, 0, ${(written ? Math.min(0.92, weight + 0.34) : weight) * ink})`;
     ctx.lineWidth = written ? (centred ? 1.9 : 1.3) : (centred ? 1.1 : 0.75);
     ctx.stroke();
+
+    for (const b of brushed) drawBrush(ctx, b);
+  }
+
+  /**
+   * Words set in a face, each rising out of the line in its own time — the
+   * same emergence as the written hand, for scripts it cannot draw.
+   */
+  function drawBrush(ctx, { thought, row, line, startX, eased, now }) {
+    const em = emOf(thought);
+    ctx.font = `${em}px ${C.brushFont}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    while (thought.wordAt.length < row.words[row.words.length - 1].index + 1) {
+      thought.wordAt.push(now);
+    }
+
+    for (const word of row.words) {
+      const born = thought.wordAt[word.index] ?? now;
+      const age = (now - born) / C.formMs;
+      const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
+      const lm = Math.max(0.02, grown * eased);
+      const loose = 1 - lm;
+      const swing = loose * C.wiggle * em;
+      const phase = now * C.wiggleRate + word.at * 0.04 + line.seed;
+
+      ctx.save();
+      ctx.translate(
+        startX + word.at + Math.cos(phase) * swing,
+        line.y + vibration(line, startX + word.at, now) * (1 - eased * C.quiet)
+          + Math.sin(phase * 1.3) * swing * 0.7
+      );
+      ctx.scale(1, lm);
+      ctx.lineWidth = 1.1 / Math.max(lm, 0.12);
+      ctx.strokeStyle = `rgba(0, 0, 0, ${(0.3 + lm * 0.6) * thought.alpha})`;
+      ctx.strokeText(word.text, 0, em * 0.34);
+      ctx.restore();
+    }
   }
 }
 

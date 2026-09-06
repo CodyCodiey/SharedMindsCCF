@@ -14,13 +14,19 @@ export const STORE = join(HERE, '..', 'transcripts');
  * timings. This reads what was said, not what was shown — there is no video
  * understanding here, only the transcript.
  */
-export async function fetchTranscript(url) {
+export const LANG_TRACKS = {
+  en: 'en-orig,en,en-US,en-GB',
+  ja: 'ja-orig,ja,ja-JP',
+};
+
+export async function fetchTranscript(url, lang = 'en') {
   // Serve a transcript already on disk rather than asking YouTube again —
   // repeated requests are what gets this machine rate-limited.
   const known = videoId(url);
   if (known) {
     try {
-      return JSON.parse(await readFile(join(STORE, `${known}.json`), 'utf8'));
+      const cached = JSON.parse(await readFile(join(STORE, `${known}.${lang}.json`), 'utf8'));
+      return cached;
     } catch { /* not cached yet */ }
   }
 
@@ -32,7 +38,7 @@ export async function fetchTranscript(url) {
       // Ask only for real English tracks. A glob like "en.*" also matches
       // machine-translated ones (en-de, en-fr, …), which multiplies requests
       // and gets the whole call rate-limited.
-      '--sub-langs', 'en-orig,en,en-US,en-GB',
+      '--sub-langs', LANG_TRACKS[lang] || LANG_TRACKS.en,
       '--retries', '5', '--sleep-requests', '1',
       '--sub-format', 'vtt',
       '--print-json', '--no-warnings',
@@ -51,6 +57,7 @@ export async function fetchTranscript(url) {
     if (!words.length) throw new Error('caption track was empty');
 
     const record = {
+      lang,
       id: meta.id,
       title: meta.title || meta.id,
       url: meta.webpage_url || url,
@@ -60,7 +67,7 @@ export async function fetchTranscript(url) {
     };
 
     await mkdir(STORE, { recursive: true });
-    await writeFile(join(STORE, `${record.id}.json`), JSON.stringify(record));
+    await writeFile(join(STORE, `${record.id}.${lang}.json`), JSON.stringify(record));
     await writeIndex();
     return record;
   } catch (err) {
@@ -88,7 +95,7 @@ function explain(message) {
     return 'YouTube wants a sign-in for this video';
   }
   if (/no captions available|caption track was empty/.test(message)) {
-    return 'that video has no caption track';
+    return 'no caption track in that language';
   }
   if (/Private video|unavailable|Video unavailable/i.test(message)) {
     return 'that video is private or unavailable';

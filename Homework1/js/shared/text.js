@@ -1,14 +1,35 @@
-import { normalize, isContent, stem } from './lexicon.js';
+import { normalize, isContent, stem, isJapanese } from './lexicon.js';
+
+// Japanese is written without spaces, so the words have to be found rather
+// than split out. Every browser that can do speech can also do this.
+const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter
+  ? new Intl.Segmenter('ja', { granularity: 'word' })
+  : null;
 
 /** Split raw speech into tokens the versions can all agree on. */
 export function tokenize(words) {
   const out = [];
-  for (const raw of words) {
+  for (const raw of expand(words)) {
     const text = String(raw).trim();
     if (!text) continue;
     const norm = normalize(text);
     const content = isContent(norm);
     out.push({ text, norm, content, key: content ? stem(norm) : '' });
+  }
+  return out;
+}
+
+/** Break any Japanese in the incoming speech into its actual words. */
+function expand(words) {
+  if (!segmenter) return words;
+  const out = [];
+  for (const raw of words) {
+    const text = String(raw);
+    if (!isJapanese(text)) { out.push(text); continue; }
+    for (const part of segmenter.segment(text)) {
+      const piece = part.segment.trim();
+      if (piece) out.push(piece);
+    }
   }
   return out;
 }

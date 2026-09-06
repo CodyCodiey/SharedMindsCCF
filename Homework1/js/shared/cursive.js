@@ -202,6 +202,12 @@ const LETTERS = {
   z: ['zig', 'tail'],
 };
 
+/** Whether this text can be written by the hand defined above. */
+export function canWrite(text) {
+  const letters = String(text).toLowerCase().replace(/[^a-z]/g, '');
+  return letters.length > 0 && [...letters].every((ch) => LETTERS[ch]);
+}
+
 /**
  * Write a phrase as one continuous stroke. Returns points in em units with y
  * measured up from the baseline, and the total advance.

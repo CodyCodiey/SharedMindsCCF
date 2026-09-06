@@ -148,6 +148,18 @@ html, body {
   max-width: 300px;
 }
 
+#language {
+  margin-left: 6px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 15px;
+  color: #000;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 0;
+  padding: 7px 10px;
+  outline: none;
+}
+
 #version {
   font-family: "Times New Roman", Times, serif;
   font-size: 15px;

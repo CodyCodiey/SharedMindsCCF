@@ -47,11 +47,11 @@ const server = createServer(async (req, res) => {
   // Hand a YouTube link to yt-dlp and return the parsed transcript.
   if (url.pathname === '/api/transcript' && req.method === 'POST') {
     try {
-      const { url: video } = await readBody(req);
+      const { url: video, lang } = await readBody(req);
       if (!video || !/^https?:\/\//.test(video)) {
         return json(res, 400, { error: 'need a video url' });
       }
-      const record = await fetchTranscript(video);
+      const record = await fetchTranscript(video, lang === 'ja' ? 'ja' : 'en');
       return json(res, 200, record);
     } catch (err) {
       return json(res, 502, { error: err.message });

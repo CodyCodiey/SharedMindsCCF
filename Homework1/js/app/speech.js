@@ -4,7 +4,7 @@
  */
 const MAX_NETWORK_RETRIES = 4;
 
-export function createSpeech({ onPhrase, onStatus }) {
+export function createSpeech({ onPhrase, onStatus, lang = 'en-US' }) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const supported = Boolean(Recognition);
   let recognition = null;
@@ -16,7 +16,7 @@ export function createSpeech({ onPhrase, onStatus }) {
     recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = lang;
 
     recognition.onresult = (event) => {
       let interim = '';
@@ -85,6 +85,14 @@ export function createSpeech({ onPhrase, onStatus }) {
 
   return {
     supported,
+    /** Switch the ear to another language; takes effect on the next start. */
+    setLang(code) {
+      if (!recognition) return;
+      const running = wanted;
+      if (running) this.stop();
+      recognition.lang = code;
+      if (running) this.start();
+    },
     get active() { return wanted; },
     start() {
       if (!supported) {

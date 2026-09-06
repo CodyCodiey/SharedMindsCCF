@@ -40,8 +40,40 @@ const WEAK_SUFFIX = /(?:ly|n't)$/;
 
 const CONTRACTION = /(?:'ve|'ll|'re|'d|'s|'m|n't)$/;
 
+// Japanese carries its grammar in particles and light verbs, the way English
+// carries it in articles and prepositions. None of them are what a thought is
+// about.
+export const JP_STOPWORDS = new Set(`
+は が を に へ と の で や か も ば ね よ な さ ぞ ぜ わ し つ っ
+です ます でした ました である だった だろう でしょう ください
+する した して しない します される され できる できた
+ある あった ない なく なかった いる いた いない なる なった なり
+これ それ あれ どれ この その あの どの ここ そこ あそこ どこ
+わたし わたくし ぼく おれ あなた かれ かのじょ みんな
+こと もの ため よう ところ とき ばあい かんじ
+そして しかし でも だから けど けれど また まあ ただ
+とても すごく ちょっと もっと すこし たくさん ぜんぶ ほとんど
+やっぱり やはり たぶん もしかして なんか なんて ええと あの
+から まで より など だけ しか ほど くらい ぐらい
+one
+`.trim().split(/\s+/));
+
+const KANJI = /[\u4e00-\u9faf\u3400-\u4dbf]/;
+const KATAKANA = /[\u30a0-\u30ff\uff66-\uff9f]/;
+const HIRAGANA = /[\u3040-\u309f]/;
+
+/** Any Japanese script at all. */
+export function isJapanese(text) {
+  return KANJI.test(text) || KATAKANA.test(text) || HIRAGANA.test(text);
+}
+
 export function normalize(word) {
-  return word.toLowerCase().replace(/[^a-z0-9'-]/g, '').replace(/^'+|'+$/g, '');
+  const text = String(word).trim();
+  if (isJapanese(text)) {
+    // Keep the script, drop the punctuation.
+    return text.replace(/[\u3000-\u303f\uff01-\uff0f\uff1a-\uff20]/g, '');
+  }
+  return text.toLowerCase().replace(/[^a-z0-9'-]/g, '').replace(/^'+|'+$/g, '');
 }
 
 /** "i've" is "i"; "doesn't" is "does". Contractions are never the subject. */
@@ -51,6 +83,7 @@ function root(norm) {
 
 /** Crude singularization so "robot" and "robots" count as one idea. */
 export function stem(norm) {
+  if (isJapanese(norm)) return norm;   // no inflection to strip here
   norm = root(norm);
   if (norm.length > 4 && norm.endsWith('ies')) return norm.slice(0, -3) + 'y';
   if (norm.length > 4 && norm.endsWith('ses')) return norm.slice(0, -2);
@@ -62,7 +95,17 @@ export function stem(norm) {
 
 /** A content word: something a thought could actually be about. */
 export function isContent(norm) {
-  if (!norm || norm.length < 3) return false;
+  if (!norm) return false;
+
+  if (isJapanese(norm)) {
+    if (JP_STOPWORDS.has(norm)) return false;
+    // Kanji and katakana carry the substance; a run of hiragana on its own is
+    // usually grammar, unless it is long enough to be a word in its own right.
+    if (KANJI.test(norm) || KATAKANA.test(norm)) return true;
+    return norm.length >= 3;
+  }
+
+  if (norm.length < 3) return false;
   if (WEAK_SUFFIX.test(norm)) return false;
   const base = root(norm);
   if (base.length < 3) return false;
