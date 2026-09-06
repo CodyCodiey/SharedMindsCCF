@@ -58,7 +58,7 @@ const C = {
   coilTurns: 2.6,
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
-  rejoinAt: 0.22,        // by this much of leaving, the letters close back into one line
+  settleEase: 0.055,     // how a thought travels to the string it settles on
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
@@ -164,7 +164,8 @@ export function create() {
       active.rows = null;
       active.em = 0;
     },
-    onEnd({ t }) { settle(t); },
+    // A thought too slight to be named still finishes and settles back.
+    onClose({ t }) { settle(t); },
   });
 
   const centre = () => (lines.length - 1) >> 1;
@@ -571,18 +572,11 @@ export function create() {
         }
       }
 
-      lines.forEach((line, index) => {
-        // Whichever thought has a row on this string writes it here.
-        let thought = null;
-        let row = null;
-        for (const t of live) {
-          if (t.m <= 0.004) continue;
-          const rows = t.drawn ? rowsOf(t) : (t.rows || []);
-          const which = index - t.line;
-          if (which >= 0 && which < rows.length) { thought = t; row = rows[which]; break; }
-        }
-        drawLine(ctx, line, index, thought, row, now);
-      });
+      // Where everything sits this frame, so the strings know what to leave
+      // room for before they are drawn.
+      const placed = place(now);
+      lines.forEach((line, index) => drawString(ctx, line, index, placed, now));
+      for (const p of placed) drawWriting(ctx, p, now);
     },
 
     ghost(text) {
@@ -608,51 +602,86 @@ export function create() {
    * writing stands clear; at nothing the letters lie flat and the line is
    * only a vibrating string again.
    */
-  function drawLine(ctx, line, index, thought, row, now) {
+  function spacing() {
+    return (size.h - C.margin * 2) / Math.max(1, C.lines - 1);
+  }
+
+  /** The string nearest a given height, for its vibration and its seed. */
+  function lineAt(y) {
+    let best = lines[0];
+    for (const line of lines) {
+      if (Math.abs(line.y - y) < Math.abs(best.y - y)) best = line;
+    }
+    return best;
+  }
+
+  /**
+   * Ease every thought toward where it belongs rather than putting it there:
+   * a thought settling into the background travels to its new string and
+   * shrinks on the way, instead of arriving already moved.
+   */
+  function place(now) {
+    const out = [];
+    const gapH = spacing();
+
+    for (const thought of live) {
+      if (thought.m <= 0.004) continue;
+      const rows = thought.drawn ? rowsOf(thought) : (thought.rows || []);
+      if (!rows.length) continue;
+
+      const wantY = (lines[thought.line] || lines[0]).y;
+      const wantEm = emOf(thought);
+      if (thought.yNow === undefined) { thought.yNow = wantY; thought.emNow = wantEm; }
+      thought.yNow += (wantY - thought.yNow) * C.settleEase;
+      thought.emNow += (wantEm - thought.emNow) * C.settleEase;
+
+      rows.forEach((row, rowIndex) => {
+        const em = thought.emNow;
+        const width = thought.drawn ? (row.x1 - row.x0) * em : row.width * (em / wantEm);
+        const y = thought.yNow + rowIndex * gapH;
+
+        thought.sx = thought.sx || [];
+        const held = thought.sx[rowIndex];
+        const target = C.margin;
+        thought.sx[rowIndex] = held === undefined
+          ? target
+          : held + Math.max(-C.slideStep, Math.min(C.slideStep, (target - held) * C.slideEase));
+
+        const m = Math.min(1, thought.m);
+        out.push({
+          thought, row, rowIndex, em, y,
+          line: lineAt(y),
+          startX: thought.sx[rowIndex],
+          width,
+          eased: m * m * (3 - 2 * m),
+        });
+      });
+    }
+    return out;
+  }
+
+  /**
+   * A string, broken wherever something is written on it. The break opens
+   * from the middle of the writing outward as the words form, so the line
+   * parts rather than snapping in two.
+   */
+  function drawString(ctx, line, index, placed, now) {
     const left = C.margin;
     const right = size.w - C.margin;
     const centred = index === centre();
-    const brushed = [];
+    const near = placed.filter((p) => Math.abs(p.y - line.y) < spacing() * 0.55);
 
-    let startX = right;
-    let endX = right;
-    let path = null;
-    let em = 0;
-    if (thought) {
-      path = pathOf(thought);
-      em = emOf(thought);
-      const width = thought.drawn ? (row.x1 - row.x0) * em : row.width;
-      const rowIndex = index - thought.line;
+    const holes = near.map((p) => {
+      const centreX = p.startX + p.width / 2;
+      const half = (p.width / 2 + C.gapPad) * p.eased;
+      return [centreX - half, centreX + half];
+    }).filter(([a, b]) => b - a > 1);
 
-      // Every row begins at the left margin and grows rightward, so a word
-      // takes shape where it will stay and nothing already written moves.
-      thought.sx = thought.sx || [];
-      const target = left;
-      const held = thought.sx[rowIndex];
-      thought.sx[rowIndex] = held === undefined
-        ? target
-        : held + Math.max(-C.slideStep, Math.min(C.slideStep, (target - held) * C.slideEase));
-      startX = thought.sx[rowIndex];
-      endX = Math.min(right, startX + width);
-    }
-
-    const eased = thought
-      ? (() => { const m = Math.min(1, thought.m); return m * m * (3 - 2 * m); })()
-      : 0;
-
-    // The string itself, running the whole width and going still under
-    // whatever is written on it.
-    // The string runs the width of the screen, but stops short of whatever
-    // is written on it: that stretch of line has become the words.
     const step = (right - left) / C.samples;
-    const eaten = thought ? eased : 0;
-    const gapFrom = startX - C.gapPad;
-    const gapTo = endX + C.gapPad;
     const runs = [];
     let strung = [];
     for (let x = left; x <= right; x += step) {
-      const inGap = eaten > 0.02 && x > gapFrom && x < gapTo;
-      if (inGap) {
+      if (holes.some(([a, b]) => x > a && x < b)) {
         if (strung.length > 1) runs.push(strung);
         strung = [];
         continue;
@@ -664,12 +693,19 @@ export function create() {
     ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
     ctx.lineWidth = centred ? 1.1 : 0.75;
     for (const piece of runs) { curve(ctx, piece); ctx.stroke(); }
+  }
 
-    if (!thought) return;
+  function drawWriting(ctx, placement, now) {
+    const { thought, row, em, y, line, startX, eased } = placement;
+    const right = size.w - C.margin;
+    const endX = Math.min(right, startX + placement.width);
+    const centred = Math.abs(y - lines[centre()].y) < spacing() * 0.5;
+    const path = pathOf(thought);
 
+    // The string itself, running the whole width and going still under
+    // whatever is written on it.
     if (!thought.drawn) {
-      brushed.push({ thought, row, line, startX, eased, now });
-      for (const b of brushed) drawBrush(ctx, b);
+      drawBrush(ctx, { thought, row, line, startX, eased, now, em, y });
       return;
     }
 
@@ -691,12 +727,15 @@ export function create() {
     const tap = [];
     for (let k = 0; k <= taps; k++) {
       const x = startX + (span * k) / taps;
-      tap.push(vibration(line, x < right ? x : right, now) * (1 - eased * C.quiet));
+      tap.push(vibration(line, x < right ? x : right, now));
     }
 
-    // Dissolving, the letters flatten onto the string and the pen stops
-    // lifting between them: the line closes back up into itself.
-    const rejoined = taut > C.rejoinAt;
+    // Dissolving, the letters flatten onto the string and the gaps between
+    // them are drawn back in, fading up as they go: the line closes rather
+    // than snapping shut.
+    const joins = [];
+    let prevEnd = null;
+    let opening = false;
     let letter = [];
     let current = -1;
     let lastX = -1e9;
@@ -716,8 +755,11 @@ export function create() {
     for (let i = row.from; i <= row.to; i++) {
       const p = pts[i];
       if (p.s !== current) {
-        if (!rejoined) { flush(); lastX = -1e9; lastY = -1e9; }
+        flush();
+        lastX = -1e9;
+        lastY = -1e9;
         current = p.s;
+        opening = true;
       }
 
       const born = thought.wordAt[p.w] ?? now;
@@ -743,10 +785,10 @@ export function create() {
       const f = ((x - startX) / span) * taps;
       const k = Math.min(taps - 1, Math.max(0, Math.floor(f)));
       const ride = tap[k] + (tap[k + 1] - tap[k]) * (f - k);
-      const y = line.y + ride - p.y * em * lm + Math.sin(phase * 1.3) * swing * 0.7;
+      const py0 = y + ride - p.y * em * lm + Math.sin(phase * 1.3) * swing * 0.7;
 
       let px = x;
-      let py = y;
+      let py = py0;
 
       // Before it is a letter it is a piece of the line: a straight chunk
       // lying where the letter will be, which breaks off and curls up into
@@ -758,7 +800,7 @@ export function create() {
         const along = run ? (run[i] - runFromMark) / markLen : 0;
         const chunkWidth = (mr.x1 - mr.x0) * em;
         let flatX = startX + (mr.x0 - row.x0) * em + along * chunkWidth;
-        let flatY = line.y + ride;
+        let flatY = y + ride;
 
         if (C.coilRadius > 0) {
           const angle = u * C.coilTurns * Math.PI * 2 + now * 0.0004 + line.seed;
@@ -774,17 +816,35 @@ export function create() {
       if (taut > 0 && run) {
         const along = (run[i] - runFrom) / runLen;
         px = x + (startX + along * tautWidth - x) * taut;
-        py = y + (line.y + ride - y) * taut;
+        py = py0 + (y + ride - py0) * taut;
       }
 
       const dx = px - lastX;
       const dy = py - lastY;
       if (i !== row.to && dx * dx + dy * dy < gap2) continue;
+
+      if (opening) {
+        if (prevEnd && taut > 0.01) joins.push([prevEnd, { x: px, y: py }]);
+        opening = false;
+      }
       letter.push({ x: px, y: py });
+      prevEnd = { x: px, y: py };
       lastX = px;
       lastY = py;
     }
     flush();
+
+    // The joins come in with the dissolve, so the marks knit back together.
+    if (joins.length && taut > 0.01) {
+      ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink * taut})`;
+      ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
+      for (const [a, b] of joins) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
   }
 
   /**

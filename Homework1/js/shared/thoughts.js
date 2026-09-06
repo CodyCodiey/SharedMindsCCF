@@ -12,6 +12,7 @@ export function createThoughts(options = {}) {
     pauseMs: 3200,
     onWords: () => {},
     onEnd: () => {},
+    onClose: () => {},   // fires for every thought, even one too slight to name
     ...options,
   };
 
@@ -30,6 +31,8 @@ export function createThoughts(options = {}) {
     const keys = state.keys;
     state.tokens = [];
     state.keys = [];
+
+    o.onClose({ tokens, keys, t });
 
     if (keys.length >= 3) {
       state.docCount++;
