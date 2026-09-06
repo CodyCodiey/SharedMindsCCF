@@ -6,6 +6,7 @@ import * as v5 from './v5-sprout.js';
 import * as v6 from './v6-sail.js';
 import * as v7 from './v7-bloom.js';
 import * as v8 from './v8-standing.js';
+import * as v9 from './v9-vibration.js';
 
 // In the order they were made.
-export const VERSIONS = [v1, v2, v3, v4, v5, v6, v7, v8];
+export const VERSIONS = [v1, v2, v3, v4, v5, v6, v7, v8, v9];
