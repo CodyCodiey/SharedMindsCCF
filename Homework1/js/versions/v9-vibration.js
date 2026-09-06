@@ -58,6 +58,8 @@ const C = {
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1,           // a straightened line spans exactly its own row, no further
   driftAway: 1,          // how far down the string the piece runs before it is gone
+  dissolveFeather: 90,   // how soft the edge of the dissolve is as it travels
+  reviveEase: 0.03,      // how slowly a string comes back once the sentence has gone
   settleEase: 0.055,     // how a thought travels to the string it settles on
   riseEase: 0.1,
   fallEase: 0.03,
@@ -126,6 +128,8 @@ export const CONTROLS = [
   { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true , group: 'Ending a sentence' },
   { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
   { key: 'leaveMs', label: 'How long a finished sentence takes to unwrite', min: 600, max: 8000, step: 100 , group: 'Ending a sentence' },
+  { key: 'dissolveFeather', label: 'How soft the dissolving edge is', min: 10, max: 400, step: 10, group: 'Ending a sentence' },
+  { key: 'reviveEase', label: 'How slowly the string comes back', min: 0.005, max: 0.2, step: 0.005, group: 'Ending a sentence' },
   { key: 'driftAway', label: 'How far it runs off down the string', min: 0, max: 1, step: 0.05, group: 'Ending a sentence' },
   { key: 'tautPull', label: 'How far a straightening line overshoots its row', min: 0.9, max: 1.3, step: 0.01, group: 'Ending a sentence' },
   { key: 'leaveStagger', label: 'How far the right end leads on the way out', min: 0, max: 2, step: 0.05 , group: 'Ending a sentence' },
@@ -684,7 +688,30 @@ export function create() {
     if (strung.length > 1) runs.push(strung);
 
     if (!runs.length) return;
-    ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
+    const ink = 0.1 + line.weight * (centred ? 0.5 : 0.28);
+    const plain = `rgba(0, 0, 0, ${ink})`;
+
+    // A sentence takes its whole string with it. The dissolve runs the
+    // length of the line, not just the part that was written on, so the
+    // unused stretch beyond the words goes too.
+    const going = near.find((p) => (p.thought.taut || 0) > 0.001);
+    if (going) {
+      const lv = going.thought.taut;
+      const from = going.startX;
+      const front = from + (right - from) * Math.min(1, lv * (1 + C.leaveStagger));
+      const at = (x) => Math.max(0, Math.min(1, (x - left) / Math.max(1, right - left)));
+      const fade = ctx.createLinearGradient(left, 0, right, 0);
+      fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      fade.addColorStop(at(front - C.dissolveFeather), 'rgba(0, 0, 0, 0)');
+      fade.addColorStop(at(front + C.dissolveFeather), plain);
+      fade.addColorStop(1, plain);
+      ctx.strokeStyle = fade;
+      line.dim = 0;
+    } else {
+      // And comes back once the sentence has gone, rather than snapping on.
+      line.dim = (line.dim ?? 1) + (1 - (line.dim ?? 1)) * C.reviveEase;
+      ctx.strokeStyle = `rgba(0, 0, 0, ${ink * line.dim})`;
+    }
     ctx.lineWidth = centred ? 1.1 : 0.75;
     ctx.beginPath();
     for (const piece of runs) addCurve(ctx, piece);
