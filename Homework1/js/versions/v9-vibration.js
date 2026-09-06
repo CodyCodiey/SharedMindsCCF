@@ -34,7 +34,7 @@ const C = {
   descender: 1.1,
   roundness: 0.74,
 
-  emBack: 0.9,          // a fragment brought back, against the hand size
+  emBack: 1,          // a fragment brought back, against the hand size
   fit: 0.92,             // fraction of the line a thought may fill
   maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
@@ -115,7 +115,7 @@ export const CONTROLS = [
   { key: 'rate', label: 'How fast they vibrate', min: 0.0005, max: 0.02, step: 0.0005 , group: 'The strings' },
   { key: 'tremor', label: 'Fine shiver on top, always present', min: 0, max: 1.5, step: 0.02 , group: 'The strings' },
   { key: 'tremorPace', label: 'How much faster talking shakes them', min: 0, max: 3, step: 0.05 , group: 'The strings' },
-  { key: 'emBack', label: 'Size of a sentence brought back', min: 0.3, max: 1.2, step: 0.02 , group: 'Coming back' },
+  { key: 'emBack', label: 'Size of a sentence brought back', min: 0.3, max: 1.6, step: 0.02 , group: 'Coming back' },
   { key: 'quiet', label: 'How still a string goes under its writing', min: 0, max: 1, step: 0.02 , group: 'The strings' },
   { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true , group: 'Ending a sentence' },
   { key: 'pauseMs', label: 'Silence that ends a sentence', min: 400, max: 5000, step: 100, thought: true , group: 'Ending a sentence' },
@@ -624,11 +624,11 @@ export function create() {
 
     const holes = near.map((p) => {
       // While the words form, the break opens from the middle outward.
-      // While they unwrite, its right edge follows them back leftward, so
-      // the string closes at the same rate rather than all at once.
+      // While they unwrite, its left edge follows them rightward, so the
+      // string closes behind the unwriting at the same rate.
       const leaving = p.thought.taut || 0;
-      const a = p.startX - C.gapPad;
-      const b = p.startX + p.width * (1 - leaving) + C.gapPad;
+      const a = p.startX + p.width * leaving - C.gapPad;
+      const b = p.startX + p.width + C.gapPad;
       const centreX = (a + b) / 2;
       const half = ((b - a) / 2) * p.eased;
       return [centreX - half, centreX + half];
@@ -726,11 +726,12 @@ export function create() {
       // How far along its own word this point lies, and how much of the
       // word has been pulled straight by now: the head lands first.
       const wr = (path.wordRange && path.wordRange[p.w]) || { from: row.from, to: row.to, x0: 0, x1: 1 };
-      // Unwriting runs along the row: the right-hand end goes back into the
-      // line first and the rest follows leftward.
+      // Unwriting runs the way the writing ran: the left end goes back into
+      // the line first and the rest follows rightward, clearing the way for
+      // the next sentence to start where this one began.
       const across = row.x1 > row.x0 ? (p.x - row.x0) / (row.x1 - row.x0) : 1;
       const taut = Math.max(0, Math.min(1,
-        leaving * (1 + C.leaveStagger) - (1 - across) * C.leaveStagger));
+        leaving * (1 + C.leaveStagger) - across * C.leaveStagger));
       const u = wr.to > wr.from ? (i - wr.from) / (wr.to - wr.from) : 1;
       const pulled = Math.max(0, Math.min(1,
         grown * (1 + C.coilStagger) - u * C.coilStagger));
