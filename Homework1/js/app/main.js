@@ -13,7 +13,7 @@ const speedButton = document.getElementById('speed');
 const playButton = document.getElementById('playpause');
 const progressBar = document.querySelector('#progress span');
 const picker = document.getElementById('version');
-const langPicker = document.getElementById('language');
+const langPicker = null;
 const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
@@ -39,10 +39,7 @@ function load(id) {
   ghost = '';
 
   // Only the version that can write another script offers one.
-  const multilingual = Boolean(version.meta.multilingual);
-  langPicker.hidden = !multilingual;
-  lang = multilingual ? preferred : 'en-US';
-  langPicker.value = preferred;
+  lang = 'en-US';
   speech.setLang(lang);
   blurbEl.textContent = version.meta.blurb;
   picker.value = version.meta.id;
@@ -57,116 +54,6 @@ function load(id) {
 }
 
 picker.addEventListener('change', () => load(picker.value));
-
-langPicker.addEventListener('change', () => {
-  preferred = langPicker.value;
-  lang = preferred;
-  try { localStorage.setItem('soc-lang', preferred); } catch { /* private mode */ }
-  speech.setLang(lang);
-  setStatus(lang.startsWith('ja') ? '日本語' : 'english', undefined);
-});
-
-/* ---- input ---- */
-
-function fitCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (current) current.resize(ctx, w, h);
-}
-
-function speak(text, t) {
-  const words = typeof text === 'string' ? text.split(/\s+/).filter(Boolean) : text;
-  if (!words.length || !current) return;
-  current.words(ctx, words, t);
-}
-
-function setStatus(text, listening) {
-  statusEl.textContent = text;
-  if (listening !== undefined) {
-    recordButton.setAttribute('aria-pressed', String(Boolean(listening)));
-    recordButton.querySelector('.label').textContent = listening ? 'Listening' : 'Speak';
-  }
-}
-
-const speech = createSpeech({
-  lang,
-  onPhrase(text, isFinal) {
-    if (isFinal) { ghost = ''; speak(text, clock()); }
-    else ghost = text;
-  },
-  onStatus: setStatus,
-});
-
-recordButton.addEventListener('click', () => { replay.stop(); speech.toggle(); });
-
-fallback.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter') return;
-  speak(fallback.value, clock());
-  fallback.value = '';
-  ghost = '';
-});
-fallback.addEventListener('input', () => { ghost = fallback.value; });
-
-const replay = createReplay({
-  onWords: (words, virtual) => speak(words, virtual),
-  onStatus: setStatus,
-  onEnd: () => { playButton.textContent = '▶'; },
-});
-
-// A transcript runs on its own clock, so the pauses in the real rant still
-// decide where thoughts end however fast it is played back.
-function clock() {
-  return replay.active ? replay.now() : performance.now();
-}
-
-async function loadVideo(url) {
-  sourceEl.classList.add('busy');
-  setStatus('fetching captions…', false);
-  videoInput.blur();
-  try {
-    const res = await fetch('/api/transcript', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url, lang: lang.startsWith('ja') ? 'ja' : 'en' }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'could not fetch that video');
-
-    speech.stop();
-    current.reset();
-    current.resize(ctx, window.innerWidth, window.innerHeight);
-    ghost = '';
-    replay.load(data);
-    sourceEl.dataset.loaded = 'true';
-    playButton.textContent = '❚❚';
-    videoInput.value = data.title;
-  } catch (err) {
-    setStatus(err.message.slice(0, 46), false);
-    sourceEl.dataset.loaded = 'false';
-  } finally {
-    sourceEl.classList.remove('busy');
-  }
-}
-
-videoInput.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter') return;
-  const url = videoInput.value.trim();
-  if (url) loadVideo(url);
-});
-videoInput.addEventListener('focus', () => videoInput.select());
-
-speedButton.addEventListener('click', () => {
-  const next = SPEEDS[(SPEEDS.indexOf(replay.speed) + 1) % SPEEDS.length];
-  replay.setSpeed(next);
-  speedButton.textContent = `${next}×`;
-});
-playButton.addEventListener('click', () => {
-  playButton.textContent = replay.toggle() ? '❚❚' : '▶';
-});
 
 window.addEventListener('resize', fitCanvas);
 document.addEventListener('keydown', (event) => {

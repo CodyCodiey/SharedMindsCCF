@@ -5,7 +5,6 @@ import { isJapanese } from '../shared/lexicon.js';
 export const meta = {
   id: 'vibration',
   title: '9 · Vibration',
-  multilingual: true,
   blurb: 'A field of vibrating strings. The thought being spoken is written out of the middle line in one unbroken stroke, then settles back among the others.',
 };
 
@@ -23,19 +22,23 @@ const C = {
   tremor: 0.22,          // fine unresolved shiver on top
   tremorRate: 0.031,
 
-  em: 34,                // px per em: a fixed, readable hand
+  em: 44,                // px per em: a fixed, readable hand
   emBack: 0.62,          // background thoughts, relative to their size
   fit: 0.92,             // fraction of the line a thought may fill
-  maxRows: 6,            // lines a single thought may run over
+  maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
   // The generated hand only knows the latin alphabet. Anything else is
   // written in a face instead, still rising out of the line it sits on.
   brushFont: '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif',
-  slant: 0.26,           // a hand writes on the lean
+  slant: 0.17,           // a hand writes on the lean, but not so far it hurts
   formMs: 1100,          // how long one word takes to find its shape
   wiggle: 0.42,          // how far it loops about before it settles
   wiggleRate: 0.006,
+  slideEase: 0.12,       // how the writing glides left as more arrives
+  slideStep: 11,         // ...and never further than this in one frame
+  recallDim: 0.5,        // how much less formed a recall's other words are
+  tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
@@ -190,20 +193,20 @@ export function create() {
     // Any earlier time it was said, other than this one.
     const earlier = seen.slice(0, -1);
     const at = earlier[Math.floor(Math.random() * earlier.length)];
-    const text = around(at);
-    if (!text) return;
+    const found = around(at);
+    if (!found || !found.text) return;
 
     const line = freeLine();
     if (line === null) return;
 
-    surface(text, line, now);
+    surface(found, line, now);
   }
 
   /** Put a fragment on a background line, briefly. */
-  function surface(text, line, now) {
+  function surface({ text, focus }, line, now) {
     nextRecall = now + C.recallGapMs;
     live.push({
-      words: text.split(' '), text, path: null, wordAt: [],
+      words: text.split(' '), text, path: null, wordAt: [], focusWord: focus,
       line, m: 0, target: C.recallLevel,
       state: 'recalled', at: now, alpha: 1, glow: 1, back: true,
       swellPhase: Math.random() * Math.PI * 2,
@@ -217,12 +220,12 @@ export function create() {
   function burst(now) {
     if (history.length < 6) return null;
     const at = Math.floor(Math.random() * history.length);
-    const text = around(at);
-    if (!text) return null;
+    const found = around(at);
+    if (!found || !found.text) return null;
     const line = freeLine();
     if (line === null) return null;
-    surface(text, line, now);
-    return text;
+    surface(found, line, now);
+    return found.text;
   }
 
   /** The words either side of one occurrence, as they were said. */
@@ -231,7 +234,10 @@ export function create() {
     const to = Math.min(history.length, index + C.recallWords + 1);
     const words = history.slice(from, to).map((tk) => tk.text);
     // Japanese sets without spaces between its words.
-    return words.join(words.some((w) => isJapanese(w)) ? '' : ' ');
+    return {
+      text: words.join(words.some((w) => isJapanese(w)) ? '' : ' '),
+      focus: index - from,
+    };
   }
 
   /** A line away from the middle that nothing is currently written on. */
@@ -250,6 +256,17 @@ export function create() {
       thought.path = thought.drawn
         ? writePhrase(thought.text)
         : { points: [], width: 0.001, words: thought.text.split(/\s+/).length };
+
+      // How far along the stroke each point lies. A word pulled straight
+      // spaces its points by this, so the loops unfurl rather than collapse.
+      const pts = thought.path.points;
+      const run = new Array(pts.length);
+      let total = 0;
+      for (let i = 0; i < pts.length; i++) {
+        if (i) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        run[i] = total;
+      }
+      thought.path.run = run;
     }
     return thought.path;
   }
@@ -393,6 +410,7 @@ export function create() {
         }
         if (thought.state === 'sinking') {
           const k = Math.min(1, (now - thought.at) / C.recallFadeMs);
+          thought.taut = k;
           thought.target = C.recallLevel * (1 - k);
           thought.glow = (thought.glow ?? 1) * (1 - k * 0.6);
           thought.alpha = 1 - k * 0.85;
@@ -401,6 +419,7 @@ export function create() {
         }
         if (thought.state === 'fading') {
           const k = Math.min(1, (now - thought.at) / C.fadeMs);
+          thought.taut = k;
           thought.alpha = 1 - k;
           thought.target = C.backLevel * (1 - k);
           // Fully faded, it is just vibration again.
@@ -474,7 +493,26 @@ export function create() {
       path = pathOf(thought);
       em = emOf(thought);
       const width = thought.drawn ? (row.x1 - row.x0) * em : row.width;
-      startX = Math.max(left, (size.w - width) / 2);
+      const rowIndex = index - thought.line;
+
+      // Every row ends at the right margin and grows leftward, so the hand
+      // writes toward a fixed edge and the line slides left to make room
+      // rather than the whole row shuffling about to stay centred. A row
+      // whose width changes as the thought wraps re-settles smoothly.
+      thought.sx = thought.sx || [];
+      const target = Math.max(left, right - width);
+      const held = thought.sx[rowIndex];
+      if (held === undefined) {
+        thought.sx[rowIndex] = target;
+      } else {
+        // Capped, so even a wrap that changes a row's width all at once is
+        // travelled rather than jumped.
+        const move = (target - held) * C.slideEase;
+        const capped = Math.max(-C.slideStep, Math.min(C.slideStep, move));
+        thought.sx[rowIndex] = held + capped;
+      }
+
+      startX = thought.sx[rowIndex];
       endX = Math.min(right, startX + width);
     }
 
@@ -504,6 +542,15 @@ export function create() {
       const still = 1 - eased * C.quiet;
       const gap2 = C.minGap * C.minGap;
 
+      // Leaving, a word is a string pulled tight from both ends: its loops
+      // unfurl, its points spread evenly along their own length, and the
+      // whole of it draws straight onto the line it was written on.
+      const taut = thought.taut || 0;
+      const run = path.run;
+      const runFrom = run ? run[row.from] : 0;
+      const runLen = run ? Math.max(1e-6, run[row.to] - runFrom) : 1;
+      const tautWidth = (row.x1 - row.x0) * em * C.tautPull;
+
       // Words that have only just arrived have no birthday yet; they get
       // this moment, and start finding their shape from here.
       while (thought.wordAt.length < (path.words || 1)) thought.wordAt.push(now);
@@ -529,7 +576,11 @@ export function create() {
         const born = thought.wordAt[p.w] ?? now;
         const age = (now - born) / C.formMs;
         const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
-        const lm = grown * eased;
+        // In something recalled, only the word that reached back is fully
+        // formed; the company it kept stays half-resolved around it.
+        const dim = thought.focusWord === undefined || thought.focusWord === p.w
+          ? 1 : C.recallDim;
+        const lm = grown * eased * dim;
         const loose = 1 - lm;
 
         // Until it is formed the stroke loops about the place it is heading,
@@ -547,14 +598,22 @@ export function create() {
           + Math.sin(phase * 1.3) * swing * 0.7
           + (jitter ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6) * jitter * loose : 0);
 
+        let px = x;
+        let py = y;
+        if (taut > 0 && run) {
+          const along = (run[i] - runFrom) / runLen;
+          px = x + (startX + along * tautWidth - x) * taut;
+          py = y + (line.y + ride - y) * taut;
+        }
+
         // Points closer together than a pixel cost the same to draw and
         // show nothing, so only keep the ones that move the pen.
-        const dx = x - lastX;
-        const dy = y - lastY;
+        const dx = px - lastX;
+        const dy = py - lastY;
         if (i !== row.to && dx * dx + dy * dy < gap2) continue;
-        points.push({ x, y });
-        lastX = x;
-        lastY = y;
+        points.push({ x: px, y: py });
+        lastX = px;
+        lastY = py;
       }
     }
 
