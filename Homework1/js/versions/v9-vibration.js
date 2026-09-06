@@ -38,8 +38,10 @@ const C = {
   maxRows: 5,            // lines a single thought may run over
   emMin: 15,             // ...and if it still will not fit, it shrinks to this
 
-  // The generated hand only knows the latin alphabet. Anything else is
-  // written in a face instead, still rising out of the line it sits on.
+  // Which hand writes. The generated one is drawn stroke by stroke as part
+  // of the line itself; the rest are faces, set on the line and rising out
+  // of it — less literally the wave, but far easier to read.
+  hand: 'Snell Roundhand',
   brushFont: '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif',
   slant: 0.17,           // a hand writes on the lean, but not so far it hurts
   formMs: 1300,          // how long one word takes to find its shape
@@ -88,7 +90,20 @@ const C = {
 };
 
 // What is worth reaching for while it is running.
+export const HANDS = [
+  'Snell Roundhand',
+  'Savoye LET',
+  'Apple Chancery',
+  'Brush Script MT',
+  'SignPainter-HouseScript',
+  'Zapfino',
+  'Bradley Hand',
+  'Noteworthy Light',
+  'generated',
+];
+
 export const CONTROLS = [
+  { key: 'hand', label: 'hand', type: 'choice', options: HANDS, shape: true },
   { key: 'em', label: 'hand size', min: 16, max: 80, step: 1 },
   { key: 'letterHeight', label: 'letter height', min: 0.4, max: 1.4, step: 0.02, shape: true },
   { key: 'letterWidth', label: 'letter width', min: 0.6, max: 1.8, step: 0.02, shape: true },
@@ -309,7 +324,7 @@ export function create() {
   function pathOf(thought) {
     if (!thought.path) {
       useHand();
-      thought.drawn = canWrite(thought.text);
+      thought.drawn = C.hand === 'generated' && canWrite(thought.text);
       thought.path = thought.drawn
         ? writePhrase(thought.text)
         : { points: [], width: 0.001, words: thought.text.split(/\s+/).length };
@@ -329,9 +344,15 @@ export function create() {
   }
 
   /** Rows for text written in a face: broken between words by measured width. */
+  function faceOf() {
+    if (C.hand === 'generated') return C.brushFont;
+    const fallback = C.hand === 'Snell Roundhand' ? '' : '"Snell Roundhand", ';
+    return `"${C.hand}", ${fallback}cursive`;
+  }
+
   function brushRows(ctx, thought) {
     const em = emOf(thought);
-    ctx.font = `${em}px ${C.brushFont}`;
+    ctx.font = `${em}px ${faceOf()}`;
     const room = (size.w - C.margin * 2) * C.fit;
     const rows = [];
     let row = null;
@@ -718,31 +739,41 @@ export function create() {
    */
   function drawBrush(ctx, { thought, row, line, startX, eased, now }) {
     const em = emOf(thought);
-    ctx.font = `${em}px ${C.brushFont}`;
+    ctx.font = `${em}px ${faceOf()}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     while (thought.wordAt.length < row.words[row.words.length - 1].index + 1) {
       thought.wordAt.push(now);
     }
 
+    const taut = thought.taut || 0;
+    const glow = thought.glow ?? 1;
+
     for (const word of row.words) {
       const born = thought.wordAt[word.index] ?? now;
       const age = (now - born) / C.formMs;
       const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
-      const lm = Math.max(0.02, grown * eased);
+      // In something recalled, only the word that reached back forms fully.
+      const dim = thought.focusWord === undefined || thought.focusWord === word.index
+        ? 1 : C.recallDim;
+      const lm = Math.max(0.02, grown * eased * dim * (1 - taut));
       const loose = 1 - lm;
-      const swing = loose * C.wiggle * em;
-      const phase = now * C.wiggleRate + word.at * 0.04 + line.seed;
+      const swing = loose * C.wiggle * em * (1 - taut);
+      const phase = now * C.wiggleRate + word.at * C.wiggleSpread * 0.05 + line.seed;
+
+      // Leaving, the words draw apart along the line as they flatten onto it.
+      const spread = 1 + taut * (C.tautPull - 1) * 3;
+      const x = startX + word.at * spread + Math.cos(phase) * swing;
 
       ctx.save();
       ctx.translate(
-        startX + word.at + Math.cos(phase) * swing,
-        line.y + vibration(line, startX + word.at, now) * (1 - eased * C.quiet)
+        x,
+        line.y + vibration(line, Math.min(x, size.w - C.margin), now) * (1 - eased * C.quiet)
           + Math.sin(phase * 1.3) * swing * 0.7
       );
       ctx.scale(1, lm);
       ctx.lineWidth = 1.1 / Math.max(lm, 0.12);
-      ctx.strokeStyle = `rgba(0, 0, 0, ${(0.3 + lm * 0.6) * thought.alpha})`;
+      ctx.strokeStyle = `rgba(0, 0, 0, ${(0.25 + lm * 0.65) * thought.alpha * glow})`;
       ctx.strokeText(word.text, 0, em * 0.34);
       ctx.restore();
     }

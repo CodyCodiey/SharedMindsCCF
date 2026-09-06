@@ -60,6 +60,26 @@ function buildPanel(version) {
     const name = document.createElement('span');
     name.textContent = spec.label;
     const value = document.createElement('b');
+
+    // Some settings are a choice rather than an amount.
+    if (spec.type === 'choice') {
+      const select = document.createElement('select');
+      select.className = 'choice';
+      for (const option of spec.options) {
+        const item = document.createElement('option');
+        item.value = option;
+        item.textContent = option;
+        select.append(item);
+      }
+      select.value = current.config[spec.key];
+      select.addEventListener('change', () => current.set(spec.key, select.value));
+      label.append(name);
+      wrap.append(label, select);
+      knobs.append(wrap);
+      spec.input = select;
+      continue;
+    }
+
     const input = document.createElement('input');
     input.type = 'range';
     input.min = spec.min;
@@ -88,8 +108,9 @@ function exportSettings() {
   if (!version || !version.CONTROLS || !current.config) return '';
   const width = Math.max(...version.CONTROLS.map((c) => c.key.length));
   const lines = version.CONTROLS.map((spec) => {
-    const value = current.config[spec.key];
-    const changed = defaults && defaults[spec.key] !== value;
+    const raw = current.config[spec.key];
+    const value = typeof raw === 'string' ? `'${raw}'` : raw;
+    const changed = defaults && defaults[spec.key] !== raw;
     return `  ${(spec.key + ':').padEnd(width + 1)} ${value},`
       + `${changed ? `   // was ${defaults[spec.key]}` : ''}`;
   });
@@ -114,7 +135,7 @@ exportButton.addEventListener('click', async () => {
 resetButton.addEventListener('click', () => {
   if (!defaults || !current.config) return;
   for (const [key, value] of Object.entries(defaults)) {
-    if (typeof value === 'number') current.set(key, value);
+    if (typeof value === 'number' || typeof value === 'string') current.set(key, value);
   }
   buildPanel(VERSIONS.find((v) => v.meta.id === picker.value));
   exported.hidden = true;
