@@ -32,8 +32,8 @@ const C = {
   // written in a face instead, still rising out of the line it sits on.
   brushFont: '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif',
   slant: 0.17,           // a hand writes on the lean, but not so far it hurts
-  formMs: 1100,          // how long one word takes to find its shape
-  wiggle: 0.42,          // how far it loops about before it settles
+  formMs: 1300,          // how long one word takes to find its shape
+  wiggle: 0.55,          // how far it loops about before it settles
   wiggleRate: 0.006,
   wiggleSpread: 0.55,    // cycles of swing per em along the stroke
   slideEase: 0.08,       // how the writing glides left as more arrives
@@ -55,6 +55,10 @@ const C = {
   recallHoldMs: 1900,
   recallFadeMs: 1100,
   recallRise: 0.16,      // they arrive quickly, the way a stray thought does
+
+  // Where one thought ends. These live here so the panel can reach them.
+  maxWords: 16,          // words said before a thought is cut off
+  pauseMs: 1500,         // silence long enough to end one
 
   // Some things surface for no reason at all.
   burstEveryMs: 7500,
@@ -107,7 +111,8 @@ export function create() {
   let nextBurst = 0;
 
   const thoughts = createThoughts({
-    min: 5, max: 10, maxWords: 16, pauseMs: 1500, threshold: 0.13,
+    min: 5, max: 10, threshold: 0.13,
+    maxWords: C.maxWords, pauseMs: C.pauseMs,
     onWords(tokens) {
       if (!active) active = begin();
       for (const tk of tokens) active.words.push(tk.text);
@@ -527,12 +532,11 @@ export function create() {
       const width = thought.drawn ? (row.x1 - row.x0) * em : row.width;
       const rowIndex = index - thought.line;
 
-      // Every row ends at the right margin and grows leftward, so the hand
-      // writes toward a fixed edge and the line slides left to make room
-      // rather than the whole row shuffling about to stay centred. A row
-      // whose width changes as the thought wraps re-settles smoothly.
+      // Every row begins at the left margin and grows rightward, so a word
+      // takes shape where it will stay: nothing already written ever moves,
+      // and the sentence reaches across the string as it is spoken.
       thought.sx = thought.sx || [];
-      const target = Math.max(left, right - width);
+      const target = left;
       const held = thought.sx[rowIndex];
       if (held === undefined) {
         thought.sx[rowIndex] = target;

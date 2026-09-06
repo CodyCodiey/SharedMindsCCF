@@ -33,8 +33,18 @@
 
   <button id="tune" type="button" title="controls (\`)">controls</button>
   <div id="panel" hidden>
-    <header><span>controls</span><button id="reset" type="button">reset</button></header>
+    <header>
+      <span>controls</span>
+      <span class="acts">
+        <button id="export" type="button">export</button>
+        <button id="reset" type="button">reset</button>
+      </span>
+    </header>
     <div id="knobs"></div>
+    <div id="exported" hidden>
+      <textarea id="exportText" readonly spellcheck="false"></textarea>
+      <p id="exportNote"></p>
+    </div>
   </div>
 
   <script type="module" src="js/app/main.js"></script>

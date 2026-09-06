@@ -17,6 +17,10 @@ const tuneButton = document.getElementById('tune');
 const panel = document.getElementById('panel');
 const knobs = document.getElementById('knobs');
 const resetButton = document.getElementById('reset');
+const exportButton = document.getElementById('export');
+const exported = document.getElementById('exported');
+const exportText = document.getElementById('exportText');
+const exportNote = document.getElementById('exportNote');
 const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
@@ -37,6 +41,7 @@ let defaults = null;
 /** Sliders for whatever the version on screen says is worth reaching for. */
 function buildPanel(version) {
   knobs.textContent = '';
+  exported.hidden = true;
   const specs = version.CONTROLS;
   if (!specs || !current.config) {
     const none = document.createElement('p');
@@ -74,12 +79,45 @@ function buildPanel(version) {
   }
 }
 
+/**
+ * The current settings, written as the config block they came from, so a
+ * setting found by ear can be pasted back into the version and kept.
+ */
+function exportSettings() {
+  const version = VERSIONS.find((v) => v.meta.id === picker.value);
+  if (!version || !version.CONTROLS || !current.config) return '';
+  const width = Math.max(...version.CONTROLS.map((c) => c.key.length));
+  const lines = version.CONTROLS.map((spec) => {
+    const value = current.config[spec.key];
+    const changed = defaults && defaults[spec.key] !== value;
+    return `  ${(spec.key + ':').padEnd(width + 1)} ${value},`
+      + `${changed ? `   // was ${defaults[spec.key]}` : ''}`;
+  });
+  return `// ${version.meta.title}\nconst C = {\n${lines.join('\n')}\n};`;
+}
+
+exportButton.addEventListener('click', async () => {
+  const text = exportSettings();
+  if (!text) return;
+  exportText.value = text;
+  exported.hidden = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    exportNote.textContent = 'copied to the clipboard';
+  } catch {
+    // Clipboard access can be refused; the text is there to copy by hand.
+    exportText.select();
+    exportNote.textContent = 'select and copy';
+  }
+});
+
 resetButton.addEventListener('click', () => {
   if (!defaults || !current.config) return;
   for (const [key, value] of Object.entries(defaults)) {
     if (typeof value === 'number') current.set(key, value);
   }
   buildPanel(VERSIONS.find((v) => v.meta.id === picker.value));
+  exported.hidden = true;
 });
 
 tuneButton.addEventListener('click', () => { panel.hidden = !panel.hidden; });
