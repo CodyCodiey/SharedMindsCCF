@@ -53,7 +53,8 @@ const C = {
   recallDim: 0.5,        // how much less formed a recall's other words are
   // A word arrives wound up and unwinds into its letters, the way a ball of
   // yarn is pulled out into a thread.
-  coilRadius: 0.9,       // how wide the ball sits, against the hand size
+  gapPad: 14,            // clear space either side of the writing
+  coilRadius: 0,         // winding added on top of the chunk, if wanted
   coilTurns: 2.6,
   coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
@@ -120,7 +121,8 @@ export const CONTROLS = [
   { key: 'roundness', label: 'roundness', min: 0.2, max: 1.9, step: 0.02, shape: true },
   { key: 'slant', label: 'lean', min: 0, max: 0.5, step: 0.01 },
   { key: 'formMs', label: 'time to form a word', min: 200, max: 3000, step: 50 },
-  { key: 'coilRadius', label: 'ball of yarn', min: 0, max: 3, step: 0.05 },
+  { key: 'gapPad', label: 'gap around the writing', min: 0, max: 80, step: 2 },
+  { key: 'coilRadius', label: 'winding', min: 0, max: 3, step: 0.05 },
   { key: 'coilTurns', label: 'winds in the ball', min: 0, max: 6, step: 0.1 },
   { key: 'coilStagger', label: 'unravel stagger', min: 0, max: 2, step: 0.05 },
   { key: 'wiggle', label: 'wiggle', min: 0, max: 1.2, step: 0.02 },
@@ -360,6 +362,18 @@ export function create() {
         r.x1 = Math.max(r.x1, p.x);
       });
       thought.path.wordRange = range;
+
+      // And where each mark begins and ends: the piece of line that breaks
+      // off and becomes it.
+      const marks = [];
+      pts.forEach((p, i) => {
+        const k = p.s ?? 0;
+        const m = marks[k] || (marks[k] = { from: i, to: i, x0: p.x, x1: p.x });
+        m.to = i;
+        m.x0 = Math.min(m.x0, p.x);
+        m.x1 = Math.max(m.x1, p.x);
+      });
+      thought.path.markRange = marks;
     }
     return thought.path;
   }
@@ -628,19 +642,28 @@ export function create() {
 
     // The string itself, running the whole width and going still under
     // whatever is written on it.
+    // The string runs the width of the screen, but stops short of whatever
+    // is written on it: that stretch of line has become the words.
     const step = (right - left) / C.samples;
-    const strung = [];
+    const eaten = thought ? eased : 0;
+    const gapFrom = startX - C.gapPad;
+    const gapTo = endX + C.gapPad;
+    const runs = [];
+    let strung = [];
     for (let x = left; x <= right; x += step) {
-      const under = thought && x >= startX - em && x <= endX + em
-        ? eased * C.quiet : 0;
-      strung.push({ x, y: line.y + vibration(line, x, now) * (1 - under) });
+      const inGap = eaten > 0.02 && x > gapFrom && x < gapTo;
+      if (inGap) {
+        if (strung.length > 1) runs.push(strung);
+        strung = [];
+        continue;
+      }
+      strung.push({ x, y: line.y + vibration(line, x, now) });
     }
-    if (strung.length > 1) {
-      curve(ctx, strung);
-      ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
-      ctx.lineWidth = centred ? 1.1 : 0.75;
-      ctx.stroke();
-    }
+    if (strung.length > 1) runs.push(strung);
+
+    ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
+    ctx.lineWidth = centred ? 1.1 : 0.75;
+    for (const piece of runs) { curve(ctx, piece); ctx.stroke(); }
 
     if (!thought) return;
 
@@ -725,16 +748,27 @@ export function create() {
       let px = x;
       let py = y;
 
-      // Before it is drawn out, the word is wound: its points sit on a
-      // spiral about where it will end up, and unwind into place.
-      if (lm < 0.999 && C.coilRadius > 0) {
-        const centre = startX + ((wr.x0 + wr.x1) / 2 - row.x0) * em;
-        const angle = u * C.coilTurns * Math.PI * 2 + now * 0.0004 + line.seed;
-        const radius = C.coilRadius * em * u * (1 - lm);
-        const ballX = centre + Math.cos(angle) * radius;
-        const ballY = line.y + ride + Math.sin(angle) * radius * 0.55;
-        px = ballX + (px - ballX) * lm;
-        py = ballY + (py - ballY) * lm;
+      // Before it is a letter it is a piece of the line: a straight chunk
+      // lying where the letter will be, which breaks off and curls up into
+      // the shape. Winding can be added on top of that.
+      if (lm < 0.999) {
+        const mr = (path.markRange && path.markRange[p.s]) || wr;
+        const runFromMark = run ? run[mr.from] : 0;
+        const markLen = run ? Math.max(1e-6, run[mr.to] - runFromMark) : 1;
+        const along = run ? (run[i] - runFromMark) / markLen : 0;
+        const chunkWidth = (mr.x1 - mr.x0) * em;
+        let flatX = startX + (mr.x0 - row.x0) * em + along * chunkWidth;
+        let flatY = line.y + ride;
+
+        if (C.coilRadius > 0) {
+          const angle = u * C.coilTurns * Math.PI * 2 + now * 0.0004 + line.seed;
+          const radius = C.coilRadius * em * u;
+          flatX += Math.cos(angle) * radius;
+          flatY += Math.sin(angle) * radius * 0.55;
+        }
+
+        px = flatX + (px - flatX) * lm;
+        py = flatY + (py - flatY) * lm;
       }
 
       if (taut > 0 && run) {
