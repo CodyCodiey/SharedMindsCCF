@@ -51,13 +51,18 @@ const C = {
   slideEase: 0.08,       // how the writing glides left as more arrives
   slideStep: 5,          // ...and never further than this in one frame
   recallDim: 0.5,        // how much less formed a recall's other words are
+  // A word arrives wound up and unwinds into its letters, the way a ball of
+  // yarn is pulled out into a thread.
+  coilRadius: 0.9,       // how wide the ball sits, against the hand size
+  coilTurns: 2.6,
+  coilStagger: 0.8,      // the head of the word lands before its tail
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
   rejoinAt: 0.22,        // by this much of leaving, the letters close back into one line
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
-  holdMs: 34000,         // it stays legible in the field this long
-  fadeMs: 9000,
+  holdMs: 11000,         // it stays legible in the field this long
+  fadeMs: 5000,
   keep: 5,               // thoughts held in the background at once
 
   // Nothing said is ever discarded: it drops into a latent space and comes
@@ -115,6 +120,9 @@ export const CONTROLS = [
   { key: 'roundness', label: 'roundness', min: 0.2, max: 1.9, step: 0.02, shape: true },
   { key: 'slant', label: 'lean', min: 0, max: 0.5, step: 0.01 },
   { key: 'formMs', label: 'time to form a word', min: 200, max: 3000, step: 50 },
+  { key: 'coilRadius', label: 'ball of yarn', min: 0, max: 3, step: 0.05 },
+  { key: 'coilTurns', label: 'winds in the ball', min: 0, max: 6, step: 0.1 },
+  { key: 'coilStagger', label: 'unravel stagger', min: 0, max: 2, step: 0.05 },
   { key: 'wiggle', label: 'wiggle', min: 0, max: 1.2, step: 0.02 },
   { key: 'wiggleSpread', label: 'wiggle along the stroke', min: 0.1, max: 4, step: 0.05 },
   { key: 'wiggleRate', label: 'wiggle speed', min: 0.001, max: 0.03, step: 0.001 },
@@ -340,6 +348,18 @@ export function create() {
         run[i] = total;
       }
       thought.path.run = run;
+
+      // Where each word begins and ends along the stroke, so it can be
+      // wound into a ball and unwound again as one thing.
+      const range = [];
+      pts.forEach((p, i) => {
+        const w = p.w ?? 0;
+        const r = range[w] || (range[w] = { from: i, to: i, x0: p.x, x1: p.x });
+        r.to = i;
+        r.x0 = Math.min(r.x0, p.x);
+        r.x1 = Math.max(r.x1, p.x);
+      });
+      thought.path.wordRange = range;
     }
     return thought.path;
   }
@@ -682,7 +702,14 @@ export function create() {
       const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
       const dim = thought.focusWord === undefined || thought.focusWord === p.w
         ? 1 : C.recallDim;
-      const lm = grown * eased * dim;
+
+      // How far along its own word this point lies, and how much of the
+      // word has been pulled straight by now: the head lands first.
+      const wr = (path.wordRange && path.wordRange[p.w]) || { from: row.from, to: row.to, x0: 0, x1: 1 };
+      const u = wr.to > wr.from ? (i - wr.from) / (wr.to - wr.from) : 1;
+      const pulled = Math.max(0, Math.min(1,
+        grown * (1 + C.coilStagger) - u * C.coilStagger));
+      const lm = pulled * eased * dim;
       const loose = 1 - lm;
 
       const swing = loose * C.wiggle * em;
@@ -697,6 +724,19 @@ export function create() {
 
       let px = x;
       let py = y;
+
+      // Before it is drawn out, the word is wound: its points sit on a
+      // spiral about where it will end up, and unwind into place.
+      if (lm < 0.999 && C.coilRadius > 0) {
+        const centre = startX + ((wr.x0 + wr.x1) / 2 - row.x0) * em;
+        const angle = u * C.coilTurns * Math.PI * 2 + now * 0.0004 + line.seed;
+        const radius = C.coilRadius * em * u * (1 - lm);
+        const ballX = centre + Math.cos(angle) * radius;
+        const ballY = line.y + ride + Math.sin(angle) * radius * 0.55;
+        px = ballX + (px - ballX) * lm;
+        py = ballY + (py - ballY) * lm;
+      }
+
       if (taut > 0 && run) {
         const along = (run[i] - runFrom) / runLen;
         px = x + (startX + along * tautWidth - x) * taut;
