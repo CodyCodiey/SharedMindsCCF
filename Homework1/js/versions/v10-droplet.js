@@ -11,12 +11,12 @@ const C = {
   // The pool
   centre: { x: 0.5, y: 0.52 },
   ripples: 7,            // rings a droplet sends out
-  rippleEveryMs: 900,
-  rippleSpeed: 0.055,    // pixels a millisecond
-  rippleFade: 640,       // how far a ring travels before it is gone
-  wobble: 3.4,           // how far a ring departs from a circle
+  rippleEveryMs: 1800,
+  rippleSpeed: 0.018,    // pixels a millisecond
+  rippleFade: 760,       // how far a ring travels before it is gone
+  wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
-  wobbleRate: 0.0009,
+  wobbleRate: 0.0005,
   samples: 220,          // points around a ring
 
   // The hand
@@ -32,11 +32,11 @@ const C = {
   // The ring a sentence is written on
   minRadius: 120,
   fill: 0.78,            // how much of the ring the words may take up
-  growEase: 0.06,
+  growEase: 0.022,
   gapPad: 0.05,          // clear angle either side of the writing, in radians
 
   // Taking shape
-  formMs: 800,
+  formMs: 1600,
   floatRise: 1.7,        // how far a piece of ring lifts on its way to being a letter
   coilStagger: 0.8,
   minGap: 1.15,
@@ -44,9 +44,9 @@ const C = {
   // Ending
   maxWords: 20,
   pauseMs: 700,
-  leaveMs: 1700,
+  leaveMs: 3200,
   leaveStagger: 0.75,
-  burstSpeed: 0.16,      // how fast the ring runs outward as it goes
+  burstSpeed: 0.05,      // how fast the ring runs outward as it goes
 
   // What falls in beside it
   recallGapMs: 1300,
@@ -55,6 +55,10 @@ const C = {
   burstEveryMs: 7500,
   burstChance: 0.55,
   smallDrop: 0.62,       // a lesser droplet, against the size of the main one
+  spreadSpeed: 0.016,    // how fast one goes on opening out after it lands
+  spreadTo: 1.1,         // how much larger its writing grows as it spreads
+  spreadFade: 620,       // how far it spreads before it is gone
+  turnEase: 0.03,        // how gently the ring turns as a sentence lengthens
 };
 
 export const CONTROLS = [
@@ -75,6 +79,7 @@ export const CONTROLS = [
   { key: 'formMs', label: 'How long one word takes to take shape', min: 200, max: 3000, step: 50, group: 'Taking shape' },
   { key: 'floatRise', label: 'How far a piece lifts off its ring', min: 0, max: 4, step: 0.05, group: 'Taking shape' },
   { key: 'coilStagger', label: 'How far a word’s tail lags its head', min: 0, max: 2, step: 0.05, group: 'Taking shape' },
+  { key: 'turnEase', label: 'How gently the ring turns as words are added', min: 0.01, max: 0.4, step: 0.01, group: 'Taking shape' },
   { key: 'growEase', label: 'How quickly the ring opens out', min: 0.01, max: 0.3, step: 0.01, group: 'Taking shape' },
 
   { key: 'maxWords', label: 'How many words before a sentence breaks off', min: 4, max: 40, step: 1, thought: true, group: 'Ending a sentence' },
@@ -84,8 +89,10 @@ export const CONTROLS = [
   { key: 'burstSpeed', label: 'How fast the ring runs outward as it goes', min: 0, max: 0.6, step: 0.01, group: 'Ending a sentence' },
 
   { key: 'smallDrop', label: 'Size of a droplet that falls in beside it', min: 0.2, max: 1.2, step: 0.02, group: 'Coming back' },
+  { key: 'spreadSpeed', label: 'How fast a returning droplet spreads', min: 0.005, max: 0.2, step: 0.005, group: 'Coming back' },
+  { key: 'spreadTo', label: 'How much larger its words grow', min: 0, max: 3, step: 0.1, group: 'Coming back' },
+  { key: 'spreadFade', label: 'How far it spreads before it is gone', min: 100, max: 1200, step: 20, group: 'Coming back' },
   { key: 'recallGapMs', label: 'Least time between two droplets', min: 400, max: 8000, step: 100, group: 'Coming back' },
-  { key: 'recallEcho', label: 'How long one lingers after the thought that called it', min: 0, max: 6, step: 0.25, group: 'Coming back' },
   { key: 'burstEveryMs', label: 'How often one falls unprompted', min: 1500, max: 30000, step: 500, group: 'Coming back' },
 ];
 
@@ -300,17 +307,15 @@ export function create() {
           // Going, the ring runs outward the way its ripples do.
           drop.radius += C.burstSpeed * 16;
           if (k >= 1) { drop.state = 'gone'; drop.goneAt = now; drops.splice(i, 1); }
-        } else if (!drop.main && drop !== active) {
-          // A lesser droplet stays while the word that called it is on the
-          // pool, and a while longer after it has gone.
-          const src = drop.source;
-          if (src && !src.goneAt) {
-            drop.until = 0;
-          } else {
-            const life = src ? Math.max(600, src.goneAt - src.bornAt) : 2000;
-            if (!drop.until) drop.until = (src ? src.goneAt : drop.bornAt) + life * C.recallEcho;
-            if (now > drop.until) { drop.state = 'leaving'; drop.since = now; }
-          }
+        } else if (!drop.main) {
+          // A droplet that has come back does not stay: it lands, opens out
+          // to its full size, and goes on spreading until it is gone.
+          const age = now - drop.bornAt;
+          const spread = age * C.spreadSpeed;
+          drop.radius = drop.want + spread;
+          drop.scale = C.smallDrop * (1 + Math.min(C.spreadTo, spread / Math.max(1, drop.want)));
+          drop.alpha = Math.max(0, 1 - spread / C.spreadFade);
+          if (drop.alpha <= 0.01) drops.splice(i, 1);
         }
       }
     },
@@ -344,6 +349,21 @@ export function create() {
 
   /** One ring of the pool, wobbling, optionally broken over a span of angle. */
   function addRing(ctx, at, r, seed, now, hole) {
+    // With no wobble asked for, these are true circles — drawn as arcs
+    // rather than as a great many short straight pieces.
+    if (C.wobble === 0) {
+      if (!hole) {
+        ctx.moveTo(at.x + r, at.y);
+        ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+      } else {
+        const a0 = hole[1];
+        const a1 = hole[0] + Math.PI * 2;
+        ctx.moveTo(at.x + Math.cos(a0) * r, at.y + Math.sin(a0) * r);
+        ctx.arc(at.x, at.y, r, a0, a1);
+      }
+      return;
+    }
+
     let started = false;
     for (let i = 0; i <= C.samples; i++) {
       const a = (i / C.samples) * Math.PI * 2 - Math.PI / 2;
@@ -361,7 +381,13 @@ export function create() {
     const em = C.em * drop.scale;
     const R = drop.radius;
     const span = (path.width * em) / Math.max(1, R);
-    const from = -Math.PI / 2 - span / 2;
+    // Where the sentence begins on the ring is eased: a word arriving
+    // lengthens the writing, and without this the whole ring swung round to
+    // recentre it in a single frame.
+    const wantFrom = -Math.PI / 2 - span / 2;
+    if (drop.from === undefined) drop.from = wantFrom;
+    drop.from += (wantFrom - drop.from) * C.turnEase;
+    const from = drop.from;
     const ink = drop.alpha;
 
     // Its own ring, broken where the words are.
