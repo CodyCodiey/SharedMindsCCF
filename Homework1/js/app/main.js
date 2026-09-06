@@ -13,6 +13,10 @@ const speedButton = document.getElementById('speed');
 const playButton = document.getElementById('playpause');
 const progressBar = document.querySelector('#progress span');
 const picker = document.getElementById('version');
+const tuneButton = document.getElementById('tune');
+const panel = document.getElementById('panel');
+const knobs = document.getElementById('knobs');
+const resetButton = document.getElementById('reset');
 const blurbEl = document.getElementById('blurb');
 
 const SPEEDS = [1, 4, 12, 40];
@@ -28,6 +32,58 @@ for (const version of VERSIONS) {
   picker.append(option);
 }
 
+let defaults = null;
+
+/** Sliders for whatever the version on screen says is worth reaching for. */
+function buildPanel(version) {
+  knobs.textContent = '';
+  const specs = version.CONTROLS;
+  if (!specs || !current.config) {
+    const none = document.createElement('p');
+    none.className = 'none';
+    none.textContent = 'This one has no controls yet.';
+    knobs.append(none);
+    defaults = null;
+    return;
+  }
+  defaults = { ...current.config };
+
+  for (const spec of specs) {
+    const wrap = document.createElement('div');
+    wrap.className = 'knob';
+    const label = document.createElement('label');
+    const name = document.createElement('span');
+    name.textContent = spec.label;
+    const value = document.createElement('b');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = spec.min;
+    input.max = spec.max;
+    input.step = spec.step;
+    input.value = current.config[spec.key];
+    const show = () => { value.textContent = Number(input.value).toString(); };
+    show();
+    input.addEventListener('input', () => {
+      current.set(spec.key, Number(input.value));
+      show();
+    });
+    label.append(name, value);
+    wrap.append(label, input);
+    knobs.append(wrap);
+    spec.input = input;
+  }
+}
+
+resetButton.addEventListener('click', () => {
+  if (!defaults || !current.config) return;
+  for (const [key, value] of Object.entries(defaults)) {
+    if (typeof value === 'number') current.set(key, value);
+  }
+  buildPanel(VERSIONS.find((v) => v.meta.id === picker.value));
+});
+
+tuneButton.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+
 function load(id) {
   const version = VERSIONS.find((v) => v.meta.id === id) || VERSIONS[VERSIONS.length - 1];
   current = version.create();
@@ -42,6 +98,7 @@ function load(id) {
   sourceEl.dataset.loaded = 'false';
   progressBar.style.width = '0%';
   setStatus('ready', false);
+  buildPanel(version);
   try { localStorage.setItem('soc-version', version.meta.id); } catch { /* private mode */ }
 }
 
@@ -154,6 +211,7 @@ window.addEventListener('resize', fitCanvas);
 document.addEventListener('keydown', (event) => {
   if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
   // Number keys jump straight to a version, for demoing without the mouse.
+  if (event.key === '`') { panel.hidden = !panel.hidden; return; }
   const n = Number(event.key);
   if (n >= 1 && n <= VERSIONS.length) load(VERSIONS[n - 1].meta.id);
 });

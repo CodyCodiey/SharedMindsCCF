@@ -46,6 +46,8 @@ export function createThoughts(options = {}) {
 
   return {
     state,
+    /** Change how a thought is bounded while it is running. */
+    configure(changes) { Object.assign(o, changes); },
     add(words, t) {
       const tokens = tokenize(words);
       if (!tokens.length) return [];

@@ -35,8 +35,9 @@ const C = {
   formMs: 1100,          // how long one word takes to find its shape
   wiggle: 0.42,          // how far it loops about before it settles
   wiggleRate: 0.006,
-  slideEase: 0.12,       // how the writing glides left as more arrives
-  slideStep: 11,         // ...and never further than this in one frame
+  wiggleSpread: 0.55,    // cycles of swing per em along the stroke
+  slideEase: 0.08,       // how the writing glides left as more arrives
+  slideStep: 5,          // ...and never further than this in one frame
   recallDim: 0.5,        // how much less formed a recall's other words are
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
   riseEase: 0.1,
@@ -71,6 +72,28 @@ const C = {
   growFloor: 0.55,
   quiet: 0.93,           // how still the line goes where writing appears
 };
+
+// What is worth reaching for while it is running.
+export const CONTROLS = [
+  { key: 'em', label: 'hand size', min: 16, max: 80, step: 1 },
+  { key: 'slant', label: 'lean', min: 0, max: 0.5, step: 0.01 },
+  { key: 'formMs', label: 'time to form a word', min: 200, max: 3000, step: 50 },
+  { key: 'wiggle', label: 'wiggle', min: 0, max: 1.2, step: 0.02 },
+  { key: 'wiggleSpread', label: 'wiggle along the stroke', min: 0.1, max: 4, step: 0.05 },
+  { key: 'wiggleRate', label: 'wiggle speed', min: 0.001, max: 0.03, step: 0.001 },
+  { key: 'amp', label: 'vibration', min: 0, max: 40, step: 0.5 },
+  { key: 'rate', label: 'vibration speed', min: 0.0005, max: 0.02, step: 0.0005 },
+  { key: 'tremor', label: 'tremor', min: 0, max: 1.5, step: 0.02 },
+  { key: 'quiet', label: 'stillness under writing', min: 0, max: 1, step: 0.02 },
+  { key: 'maxWords', label: 'words per thought', min: 4, max: 40, step: 1, thought: true },
+  { key: 'pauseMs', label: 'silence that ends a thought', min: 400, max: 5000, step: 100, thought: true },
+  { key: 'holdMs', label: 'how long a thought stays', min: 4000, max: 90000, step: 1000 },
+  { key: 'swellPeriodMs', label: 'swell of the background', min: 3000, max: 40000, step: 500 },
+  { key: 'recallGapMs', label: 'gap between recalls', min: 500, max: 10000, step: 100 },
+  { key: 'burstEveryMs', label: 'time between bursts', min: 1500, max: 30000, step: 500 },
+  { key: 'lines', label: 'strings', min: 5, max: 41, step: 2, rebuild: true },
+  { key: 'slideStep', label: 'glide speed', min: 1, max: 30, step: 1 },
+];
 
 export function create() {
   let size = { w: 0, h: 0 };
@@ -352,6 +375,15 @@ export function create() {
   }
 
   return {
+    /** The knobs above, live: changing one takes effect on the next frame. */
+    config: C,
+    set(key, value) {
+      C[key] = value;
+      const spec = CONTROLS.find((c) => c.key === key);
+      if (spec && spec.rebuild) build();
+      if (spec && spec.thought) thoughts.configure({ [key]: value });
+      for (const t of live) { t.rows = null; t.rowsAt = -1; t.em = 0; }
+    },
     resize(ctx, w, h) { size = { w, h }; build(); },
     words(ctx, list, t) {
       const tokens = thoughts.add(list, t);
@@ -585,8 +617,11 @@ export function create() {
 
         // Until it is formed the stroke loops about the place it is heading,
         // and the lean of the hand comes in with the height of the letter.
+        // The swing has to be slow ALONG the stroke as well as in time, or
+        // neighbouring points pull opposite ways and the hand looks chopped
+        // rather than loose.
         const swing = loose * C.wiggle * em;
-        const phase = now * C.wiggleRate + p.x * 5.5 + line.seed;
+        const phase = now * C.wiggleRate + p.x * C.wiggleSpread + line.seed;
         const x = startX + ((p.x - row.x0) + p.y * lm * C.slant) * em
           + Math.cos(phase) * swing;
 
@@ -596,7 +631,7 @@ export function create() {
         const y = line.y + ride
           - p.y * em * lm
           + Math.sin(phase * 1.3) * swing * 0.7
-          + (jitter ? Math.sin(p.x * 37 + now * C.tremorRate * 1.6) * jitter * loose : 0);
+          + (jitter ? Math.sin(p.x * C.wiggleSpread * 1.7 + now * C.tremorRate) * jitter * loose : 0);
 
         let px = x;
         let py = y;

@@ -5,202 +5,140 @@
  * anything in between.
  *
  * x advances left to right, y is positive upward, the baseline is y = 0 and
- * the x-height is y = 1. Every letter is an ordered list of strokes, because
- * a d is a bowl and then a stem, and writing it the other way round is not a d.
+ * the x-height is y = 1. Every letter is its own skeleton rather than a
+ * composition of shared parts, because letters are told apart by their
+ * shapes and not by their rhythm: an a and an o differ, and so must these.
+ *
+ * Each letter starts at (0, 0) and is a list of quadratic segments given as
+ * [controlX, controlY, endX, endY]. A letter may finish anywhere; the join
+ * to the next one brings the pen back down to the line.
  */
 
-const ASC = 1.62;
-const DESC = -0.74;
+const LETTERS = {
+  a: { w: 0.64, s: [
+    [0.08, 0.82, 0.34, 1.0], [0.0, 0.94, 0.04, 0.5], [0.06, 0.04, 0.34, 0.03],
+    [0.58, 0.06, 0.6, 0.5], [0.58, 0.96, 0.36, 0.99], [0.62, 0.62, 0.64, 0.0],
+  ] },
+  b: { w: 0.92, s: [
+    [0.3, 1.02, 0.2, 1.72], [0.02, 1.78, 0.08, 0.92], [0.14, 0.34, 0.34, 0.06],
+    [0.5, 0.0, 0.66, 0.2], [0.86, 0.5, 0.72, 0.78], [0.6, 0.98, 0.92, 0.72],
+  ] },
+  c: { w: 0.58, s: [
+    [0.34, 1.02, 0.46, 0.94], [0.06, 1.0, 0.05, 0.5],
+    [0.04, 0.04, 0.36, 0.06], [0.5, 0.1, 0.58, 0.02],
+  ] },
+  d: { w: 0.96, s: [
+    [0.08, 0.82, 0.34, 1.0], [0.0, 0.94, 0.04, 0.5], [0.06, 0.04, 0.34, 0.03],
+    [0.58, 0.06, 0.6, 0.52], [0.72, 1.1, 0.74, 1.72],
+    [0.86, 1.76, 0.8, 0.9], [0.82, 0.3, 0.96, 0.0],
+  ] },
+  e: { w: 0.54, s: [
+    [0.24, 0.06, 0.3, 0.44], [0.4, 0.78, 0.2, 0.76],
+    [0.0, 0.68, 0.1, 0.24], [0.28, 0.0, 0.54, 0.16],
+  ] },
+  f: { w: 0.72, s: [
+    [0.36, 1.05, 0.28, 1.74], [0.08, 1.8, 0.16, 1.0],
+    [0.2, 0.4, 0.24, -0.3], [0.2, -0.82, 0.04, -0.78],
+    [-0.08, -0.74, 0.06, -0.3], [0.16, 0.2, 0.72, 0.04],
+  ] },
+  g: { w: 0.7, s: [
+    [0.08, 0.82, 0.34, 1.0], [0.0, 0.94, 0.04, 0.5], [0.06, 0.04, 0.34, 0.03],
+    [0.58, 0.06, 0.6, 0.5], [0.62, 0.1, 0.58, -0.5],
+    [0.5, -0.86, 0.28, -0.78], [0.14, -0.72, 0.42, -0.34], [0.62, -0.1, 0.7, 0.0],
+  ] },
+  h: { w: 0.9, s: [
+    [0.3, 1.02, 0.2, 1.72], [0.02, 1.78, 0.08, 0.9], [0.12, 0.3, 0.2, 0.0],
+    [0.28, 0.9, 0.48, 1.0], [0.72, 1.04, 0.78, 0.42], [0.8, 0.12, 0.9, 0.0],
+  ] },
+  i: { w: 0.38, s: [
+    [0.06, 0.82, 0.17, 0.98], [0.32, 1.02, 0.38, 0.0],
+  ] },
+  j: { w: 0.42, s: [
+    [0.06, 0.82, 0.18, 0.98], [0.34, 1.02, 0.3, -0.34],
+    [0.26, -0.84, 0.06, -0.78], [-0.06, -0.72, 0.18, -0.3], [0.34, -0.06, 0.42, 0.0],
+  ] },
+  k: { w: 0.88, s: [
+    [0.3, 1.02, 0.2, 1.72], [0.02, 1.78, 0.08, 0.9], [0.12, 0.3, 0.2, 0.0],
+    [0.3, 0.62, 0.6, 0.92], [0.36, 0.72, 0.34, 0.42],
+    [0.5, 0.5, 0.7, 0.24], [0.78, 0.1, 0.88, 0.0],
+  ] },
+  l: { w: 0.46, s: [
+    [0.32, 1.02, 0.22, 1.74], [0.02, 1.8, 0.1, 0.9], [0.16, 0.28, 0.46, 0.0],
+  ] },
+  m: { w: 1.2, s: [
+    [0.06, 0.78, 0.18, 1.0], [0.34, 1.06, 0.4, 0.0],
+    [0.45, 0.86, 0.58, 1.0], [0.74, 1.06, 0.8, 0.0],
+    [0.85, 0.86, 0.98, 1.0], [1.14, 1.06, 1.2, 0.0],
+  ] },
+  n: { w: 0.82, s: [
+    [0.06, 0.78, 0.18, 1.0], [0.34, 1.06, 0.4, 0.0],
+    [0.45, 0.86, 0.58, 1.0], [0.76, 1.06, 0.82, 0.0],
+  ] },
+  o: { w: 0.72, s: [
+    [0.08, 0.82, 0.34, 1.0], [0.0, 0.94, 0.04, 0.5], [0.06, 0.04, 0.34, 0.03],
+    [0.62, 0.06, 0.66, 0.5], [0.68, 0.9, 0.44, 0.98], [0.66, 0.86, 0.72, 0.62],
+  ] },
+  p: { w: 0.8, s: [
+    [0.06, 0.8, 0.16, 1.0], [0.24, 0.3, 0.2, -0.5],
+    [0.16, -0.84, 0.3, -0.8], [0.42, -0.76, 0.34, 0.1],
+    [0.4, 0.72, 0.56, 0.86], [0.82, 0.96, 0.8, 0.5], [0.78, 0.06, 0.8, 0.0],
+  ] },
+  q: { w: 0.72, s: [
+    [0.08, 0.82, 0.34, 1.0], [0.0, 0.94, 0.04, 0.5], [0.06, 0.04, 0.34, 0.03],
+    [0.58, 0.06, 0.6, 0.5], [0.64, 0.0, 0.56, -0.6],
+    [0.6, -0.84, 0.72, -0.62], [0.74, -0.3, 0.72, 0.0],
+  ] },
+  r: { w: 0.62, s: [
+    [0.06, 0.8, 0.18, 1.0], [0.3, 1.0, 0.3, 0.74],
+    [0.42, 1.04, 0.54, 0.88], [0.58, 0.48, 0.62, 0.0],
+  ] },
+  s: { w: 0.5, s: [
+    [0.28, 0.96, 0.4, 0.92], [0.34, 1.06, 0.14, 0.9],
+    [0.02, 0.76, 0.2, 0.5], [0.42, 0.28, 0.36, 0.12],
+    [0.24, -0.02, 0.5, 0.06],
+  ] },
+  t: { w: 0.5, s: [
+    [0.2, 0.94, 0.24, 1.56], [0.3, 0.8, 0.34, 0.06],
+    [0.42, 0.16, 0.5, 0.22], [0.2, 1.24, 0.02, 1.16], [0.3, 1.3, 0.5, 1.16],
+  ] },
+  u: { w: 0.84, s: [
+    [0.06, 0.86, 0.14, 1.0], [0.22, -0.1, 0.44, 0.04],
+    [0.5, 0.56, 0.52, 1.0], [0.6, -0.1, 0.8, 0.04], [0.86, 0.42, 0.84, 0.92],
+  ] },
+  v: { w: 0.64, s: [
+    [0.06, 0.86, 0.16, 1.0], [0.3, 0.28, 0.36, 0.02], [0.46, 0.5, 0.64, 0.94],
+  ] },
+  w: { w: 1.0, s: [
+    [0.06, 0.86, 0.14, 1.0], [0.24, 0.28, 0.3, 0.02],
+    [0.4, 0.5, 0.5, 1.0], [0.6, 0.28, 0.66, 0.02], [0.78, 0.5, 1.0, 0.94],
+  ] },
+  x: { w: 0.64, s: [
+    [0.05, 0.8, 0.14, 1.0], [0.36, 0.62, 0.56, 0.0],
+    [0.42, 0.28, 0.1, 0.46], [0.32, 0.58, 0.64, 0.34],
+  ] },
+  y: { w: 0.78, s: [
+    [0.06, 0.86, 0.14, 1.0], [0.22, -0.1, 0.44, 0.04],
+    [0.5, 0.56, 0.54, 1.0], [0.52, 0.2, 0.44, -0.5],
+    [0.38, -0.84, 0.2, -0.78], [0.08, -0.72, 0.36, -0.32], [0.62, -0.06, 0.78, 0.02],
+  ] },
+  z: { w: 0.66, s: [
+    [0.12, 0.94, 0.24, 0.98], [0.5, 1.04, 0.62, 0.98],
+    [0.3, 0.6, 0.16, 0.1], [0.4, 0.02, 0.58, 0.06],
+    [0.52, -0.5, 0.34, -0.72], [0.14, -0.86, 0.12, -0.5], [0.2, -0.12, 0.66, 0.02],
+  ] },
+};
 
-function quad(pts, c, to, steps = 4) {
+function quad(pts, cx, cy, x, y, steps = 5) {
   const from = pts[pts.length - 1];
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
     const u = 1 - t;
     pts.push({
-      x: u * u * from.x + 2 * u * t * c.x + t * t * to.x,
-      y: u * u * from.y + 2 * u * t * c.y + t * t * to.y,
+      x: u * u * from.x + 2 * u * t * cx + t * t * x,
+      y: u * u * from.y + 2 * u * t * cy + t * t * y,
     });
   }
 }
-
-const at = (pts) => pts[pts.length - 1];
-
-// Each stroke takes the pen from where it is to where it leaves, and reports
-// how far along the line it travelled.
-const STROKE = {
-  /** An over-arc: rounded on top, cornered at the line. n, m, i. */
-  arch(pts, x, s = 1, h = 1) {
-    const w = 0.84 * s;
-    quad(pts, { x: x + w * 0.04, y: h * 1.16 }, { x: x + w * 0.5, y: h });
-    quad(pts, { x: x + w * 0.96, y: h * 1.14 }, { x: x + w, y: 0 });
-    return w;
-  },
-
-  /** An under-arc: cornered on top, rounded at the line. u, y. */
-  trough(pts, x, s = 1) {
-    const w = 0.8 * s;
-    quad(pts, { x: x + w * 0.1, y: 0.94 }, { x: x + w * 0.24, y: 1 });
-    quad(pts, { x: x + w * 0.42, y: -0.16 }, { x: x + w * 0.8, y: 0.34 });
-    quad(pts, { x: x + w * 0.96, y: 0.86 }, { x: x + w, y: 1 });
-    quad(pts, { x: x + w * 1.04, y: 0.5 }, { x: x + w * 1.02, y: 0 }, 4);
-    return w * 1.02;
-  },
-
-  /** A pointed valley. v, w. */
-  wedge(pts, x, s = 1) {
-    const w = 0.74 * s;
-    quad(pts, { x: x + w * 0.1, y: 0.9 }, { x: x + w * 0.22, y: 1 }, 3);
-    pts.push({ x: x + w * 0.6, y: 0.02 });
-    pts.push({ x: x + w, y: 1 });
-    return w;
-  },
-
-  /** A round body, written the way a hand makes an o, closing at the top. */
-  bowl(pts, x, s = 1) {
-    const w = 0.88 * s;
-    const r = w / 2;
-    const cx = x + r;
-    quad(pts, { x: x + w * 0.04, y: 0.86 }, { x: cx, y: 1 });
-    quad(pts, { x: cx + r * 1.02, y: 0.88 }, { x: x + w, y: 0.5 });
-    quad(pts, { x: cx + r * 0.98, y: 0.1 }, { x: cx, y: 0 });
-    quad(pts, { x: cx - r * 1.0, y: 0.1 }, { x: x, y: 0.5 });
-    quad(pts, { x: cx - r * 0.86, y: 0.9 }, { x: cx - r * 0.1, y: 0.97 });
-    // Out of the top of the bowl and back down to the line to carry on.
-    quad(pts, { x: x + w * 0.92, y: 0.86 }, { x: x + w * 1.04, y: 0 });
-    return w * 1.04;
-  },
-
-  /** An open bowl: c, which never closes. */
-  hook(pts, x, s = 1) {
-    const w = 0.74 * s;
-    quad(pts, { x: x + w * 0.16, y: 0.9 }, { x: x + w * 0.62, y: 0.98 });
-    quad(pts, { x: x + w * 0.1, y: 1.02 }, { x: x + w * 0.06, y: 0.5 });
-    quad(pts, { x: x + w * 0.04, y: 0.02 }, { x: x + w * 0.66, y: 0.06 });
-    quad(pts, { x: x + w * 0.92, y: 0.08 }, { x: x + w, y: 0 }, 3);
-    return w;
-  },
-
-  /** The tall loop of l, h, b, k: up the right, over, down the left. */
-  stem(pts, x, s = 1) {
-    const top = ASC * s;
-    const w = 0.4;
-    // Up the right, over the top, and back down the left: an open loop,
-    // not a stick.
-    quad(pts, { x: x + w * 1.75, y: top * 0.42 }, { x: x + w * 1.02, y: top });
-    quad(pts, { x: x - w * 0.05, y: top * 0.99 }, { x: x + w * 0.22, y: top * 0.46 });
-    quad(pts, { x: x + w * 0.45, y: top * 0.06 }, { x: x + w * 0.92, y: 0 });
-    return w * 0.92;
-  },
-
-  /** A straight tall stroke, for t: shorter, and no loop. */
-  post(pts, x, s = 0.66) {
-    const top = ASC * s;
-    quad(pts, { x: x + 0.16, y: top * 0.6 }, { x: x + 0.2, y: top }, 4);
-    quad(pts, { x: x + 0.24, y: top * 0.4 }, { x: x + 0.3, y: 0 }, 4);
-    return 0.3;
-  },
-
-  /** The loop below the line: g, y, j, p, f, z. */
-  tail(pts, x, s = 1) {
-    const deep = DESC * s;
-    quad(pts, { x: x + 0.2, y: deep * 0.55 }, { x: x + 0.14, y: deep });
-    quad(pts, { x: x - 0.3, y: deep * 1.0 }, { x: x - 0.22, y: deep * 0.34 });
-    quad(pts, { x: x - 0.02, y: 0.02 }, { x: x + 0.26, y: 0.06 });
-    quad(pts, { x: x + 0.34, y: 0.04 }, { x: x + 0.36, y: 0 }, 3);
-    return 0.36;
-  },
-
-  /** A straight descender, for q. */
-  drop(pts, x) {
-    quad(pts, { x: x + 0.12, y: DESC * 0.5 }, { x: x + 0.16, y: DESC });
-    quad(pts, { x: x + 0.34, y: DESC * 0.8 }, { x: x + 0.4, y: 0 });
-    return 0.4;
-  },
-
-  /** The small closed loop of e. */
-  eye(pts, x, s = 1) {
-    const w = 0.64 * s;
-    quad(pts, { x: x + w * 0.1, y: 0.44 }, { x: x + w * 0.52, y: 0.52 });
-    quad(pts, { x: x + w * 0.86, y: 0.6 }, { x: x + w * 0.5, y: 0.98 });
-    quad(pts, { x: x + w * 0.04, y: 0.9 }, { x: x + w * 0.1, y: 0.36 });
-    quad(pts, { x: x + w * 0.4, y: -0.06 }, { x: x + w * 1.05, y: 0.04 });
-    return w * 1.05;
-  },
-
-  /** The s curl. */
-  curl(pts, x, s = 1) {
-    const w = 0.58 * s;
-    quad(pts, { x: x + w * 0.9, y: 0.5 }, { x: x + w * 0.72, y: 0.96 });
-    quad(pts, { x: x + w * 0.1, y: 1.02 }, { x: x + w * 0.24, y: 0.5 });
-    quad(pts, { x: x + w * 0.4, y: 0.08 }, { x: x + w, y: 0.02 });
-    return w;
-  },
-
-  /** The shoulder of r: a short arch that stops high. */
-  shoulder(pts, x) {
-    quad(pts, { x: x + 0.06, y: 1.0 }, { x: x + 0.22, y: 0.82 });
-    quad(pts, { x: x + 0.34, y: 1.05 }, { x: x + 0.46, y: 0.86 });
-    quad(pts, { x: x + 0.5, y: 0.4 }, { x: x + 0.52, y: 0 }, 4);
-    return 0.52;
-  },
-
-  /** k's knot, and x's crossing — both drawn without lifting. */
-  knot(pts, x) {
-    quad(pts, { x: x + 0.02, y: 0.9 }, { x: x + 0.3, y: 0.52 });
-    quad(pts, { x: x - 0.06, y: 0.4 }, { x: x + 0.26, y: 0.34 });
-    quad(pts, { x: x + 0.48, y: 0.2 }, { x: x + 0.5, y: 0 });
-    return 0.5;
-  },
-  cross(pts, x) {
-    quad(pts, { x: x + 0.04, y: 1.02 }, { x: x + 0.46, y: 0.94 });
-    quad(pts, { x: x + 0.1, y: 0.6 }, { x: x - 0.02, y: 0.46 });
-    quad(pts, { x: x + 0.3, y: 0.2 }, { x: x + 0.48, y: 0 });
-    return 0.48;
-  },
-  bar(pts, x) {
-    // t's crossbar, doubling back over the stroke just written.
-    quad(pts, { x: x - 0.22, y: 1.25 }, { x: x - 0.34, y: 1.12 }, 3);
-    quad(pts, { x: x + 0.1, y: 1.2 }, { x: x + 0.06, y: 0.06 }, 4);
-    return 0.06;
-  },
-  zig(pts, x) {
-    quad(pts, { x: x + 0.1, y: 1.0 }, { x: x + 0.44, y: 0.96 }, 3);
-    pts.push({ x: x + 0.06, y: 0.06 });
-    quad(pts, { x: x + 0.3, y: 0.0 }, { x: x + 0.5, y: 0.04 }, 3);
-    return 0.5;
-  },
-};
-
-// Ordered, because a d is a bowl and then a stem.
-const LETTERS = {
-  a: ['bowl'],
-  b: ['stem', ['bowl', 0.82]],
-  c: ['hook'],
-  d: ['bowl', 'stem'],
-  e: ['eye'],
-  f: ['stem', 'tail'],
-  g: ['bowl', 'tail'],
-  h: ['stem', 'arch'],
-  i: [['arch', 0.72, 0.72]],
-  j: [['arch', 0.66, 0.72], 'tail'],
-  k: ['stem', 'knot'],
-  l: ['stem'],
-  m: ['arch', 'arch', 'arch'],
-  n: ['arch', 'arch'],
-  o: ['bowl'],
-  p: ['arch', 'drop'],
-  q: ['bowl', 'drop'],
-  r: ['shoulder'],
-  s: ['curl'],
-  t: ['post', 'bar'],
-  u: ['trough', 'trough'],
-  v: ['wedge'],
-  w: ['wedge', 'wedge'],
-  x: ['arch', 'cross'],
-  y: ['trough', 'tail'],
-  z: ['zig', 'tail'],
-};
 
 /** Whether this text can be written by the hand defined above. */
 export function canWrite(text) {
@@ -219,28 +157,33 @@ export function writePhrase(text) {
 
   for (const ch of String(text).toLowerCase()) {
     if (ch === ' ') {
-      // The hand lifts between words, but the line does not: it loops along
-      // under the baseline to the next one.
-      quad(pts, { x: x + 0.2, y: -0.22 }, { x: x + 0.44, y: 0 }, 4);
+      quad(pts, x + 0.2, -0.2, x + 0.42, 0, 4);
       word++;
       mark(pts, word);
-      x += 0.44;
+      x += 0.42;
       continue;
     }
-    const recipe = LETTERS[ch];
-    if (!recipe) continue;
+    const letter = LETTERS[ch];
+    if (!letter) continue;
 
-    // The joining stroke up out of the line and into the letter.
-    quad(pts, { x: x + 0.14, y: 0.34 }, { x: x + 0.1, y: 0.06 }, 3);
-    x += 0.1;
-    for (const step of recipe) {
-      const [name, scale, height] = Array.isArray(step) ? step : [step, 1];
-      x += STROKE[name](pts, x, scale, height);
+    // Bring the pen to where this letter begins, without lifting it.
+    const here = pts[pts.length - 1];
+    if (Math.abs(here.y) > 0.001 || Math.abs(here.x - x) > 0.001) {
+      quad(pts, (here.x + x) / 2, here.y * 0.4, x, 0, 3);
     }
-    if (Math.abs(at(pts).y) > 0.001) quad(pts, { x: x + 0.06, y: 0.08 }, { x: x + 0.1, y: 0 }, 3);
-    x = Math.max(x, at(pts).x) + 0.1;
+
+    for (const [cx, cy, ex, ey] of letter.s) {
+      quad(pts, x + cx, cy, x + ex, ey);
+    }
+    x += letter.w + 0.1;
     mark(pts, word);
   }
+
+  // Finish on the line.
+  const end = pts[pts.length - 1];
+  if (Math.abs(end.y) > 0.001) quad(pts, end.x + 0.06, end.y * 0.4, x, 0, 3);
+  mark(pts, word);
+
   return { points: pts, width: Math.max(x, 0.001), words: word + 1 };
 }
 
