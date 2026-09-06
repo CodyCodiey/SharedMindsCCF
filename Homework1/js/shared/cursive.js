@@ -9,6 +9,10 @@
  * composition of shared parts, because letters are told apart by their
  * shapes and not by their rhythm: an a and an o differ, and so must these.
  *
+ * The pen lifts between letters. Joining them was what made a word one
+ * undifferentiated run, and the line underneath carries on regardless, so
+ * nothing is lost by letting each letter stand on its own.
+ *
  * Each letter starts at (0, 0) and is a list of quadratic segments given as
  * [controlX, controlY, endX, endY]. A letter may finish anywhere; the join
  * to the next one brings the pen back down to the line.
@@ -135,7 +139,7 @@ const LETTERS = {
 export const HAND = {
   xHeight: 1,       // height of the small letters against their width
   width: 1,         // how wide each letter runs
-  spacing: 0.1,     // air between letters
+  spacing: 0.22,    // air between letters
   wordGap: 0.42,
   ascender: 1,      // how far the tall loops reach above the x-height
   descender: 1,     // how far the tails drop below the line
@@ -165,41 +169,36 @@ export function canWrite(text) {
  * measured up from the baseline, and the total advance.
  */
 export function writePhrase(text) {
-  const pts = [{ x: 0, y: 0, w: 0 }];
+  const pts = [];
   let x = 0;
   let word = 0;
+  let stroke = 0;
 
   for (const ch of String(text).toLowerCase()) {
     if (ch === ' ') {
-      quad(pts, x + HAND.wordGap * 0.48, -0.2 * HAND.xHeight, x + HAND.wordGap, 0, 4);
       word++;
-      mark(pts, word);
       x += HAND.wordGap;
       continue;
     }
     const letter = LETTERS[ch];
     if (!letter) continue;
 
-    // Bring the pen to where this letter begins, without lifting it.
-    const here = pts[pts.length - 1];
-    if (Math.abs(here.y) > 0.001 || Math.abs(here.x - x) > 0.001) {
-      quad(pts, (here.x + x) / 2, here.y * 0.4, x, 0, 3);
-    }
-
+    // A letter is its own stroke: the pen comes down at its start and lifts
+    // again at its end.
+    pts.push({ x, y: 0, w: word, s: stroke });
     for (const seg of letter.s) {
       const [cx, cy, ex, ey] = bend(seg, pts[pts.length - 1], x);
       quad(pts, cx, cy, ex, ey);
     }
+    for (let i = pts.length - 1; i >= 0 && pts[i].s === undefined; i--) {
+      pts[i].s = stroke;
+      pts[i].w = word;
+    }
+    stroke++;
     x += letter.w * HAND.width + HAND.spacing;
-    mark(pts, word);
   }
 
-  // Finish on the line.
-  const end = pts[pts.length - 1];
-  if (Math.abs(end.y) > 0.001) quad(pts, end.x + 0.06, end.y * 0.4, x, 0, 3);
-  mark(pts, word);
-
-  return { points: pts, width: Math.max(x, 0.001), words: word + 1 };
+  return { points: pts, width: Math.max(x, 0.001), words: word + 1, strokes: stroke };
 }
 
 /**
@@ -230,7 +229,4 @@ function bend([cx, cy, ex, ey], from, x) {
   ];
 }
 
-/** Stamp every point written since the last mark with its word. */
-function mark(pts, word) {
-  for (let i = pts.length - 1; i >= 0 && pts[i].w === undefined; i--) pts[i].w = word;
-}
+

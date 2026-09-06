@@ -27,7 +27,7 @@ const C = {
   // The shape of the hand itself.
   letterHeight: 0.82,    // x-height against the width of the letters
   letterWidth: 1,
-  letterSpacing: 0.1,
+  letterSpacing: 0.34,
   wordGap: 0.46,
   ascender: 1,
   descender: 1,
@@ -52,6 +52,7 @@ const C = {
   slideStep: 5,          // ...and never further than this in one frame
   recallDim: 0.5,        // how much less formed a recall's other words are
   tautPull: 1.06,        // a leaving string is drawn slightly longer as it straightens
+  rejoinAt: 0.22,        // by this much of leaving, the letters close back into one line
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
@@ -577,6 +578,7 @@ export function create() {
     const left = C.margin;
     const right = size.w - C.margin;
     const centred = index === centre();
+    const brushed = [];
 
     let startX = right;
     let endX = right;
@@ -589,148 +591,126 @@ export function create() {
       const rowIndex = index - thought.line;
 
       // Every row begins at the left margin and grows rightward, so a word
-      // takes shape where it will stay: nothing already written ever moves,
-      // and the sentence reaches across the string as it is spoken.
+      // takes shape where it will stay and nothing already written moves.
       thought.sx = thought.sx || [];
       const target = left;
       const held = thought.sx[rowIndex];
-      if (held === undefined) {
-        thought.sx[rowIndex] = target;
-      } else {
-        // Capped, so even a wrap that changes a row's width all at once is
-        // travelled rather than jumped.
-        const move = (target - held) * C.slideEase;
-        const capped = Math.max(-C.slideStep, Math.min(C.slideStep, move));
-        thought.sx[rowIndex] = held + capped;
-      }
-
+      thought.sx[rowIndex] = held === undefined
+        ? target
+        : held + Math.max(-C.slideStep, Math.min(C.slideStep, (target - held) * C.slideEase));
       startX = thought.sx[rowIndex];
       endX = Math.min(right, startX + width);
     }
 
+    const eased = thought
+      ? (() => { const m = Math.min(1, thought.m); return m * m * (3 - 2 * m); })()
+      : 0;
+
+    // The string itself, running the whole width and going still under
+    // whatever is written on it.
     const step = (right - left) / C.samples;
-    const points = [];
-    const brushed = [];
-
-    for (let x = left; x < startX; x += step) {
-      points.push({ x, y: line.y + vibration(line, x, now) });
+    const strung = [];
+    for (let x = left; x <= right; x += step) {
+      const under = thought && x >= startX - em && x <= endX + em
+        ? eased * C.quiet : 0;
+      strung.push({ x, y: line.y + vibration(line, x, now) * (1 - under) });
+    }
+    if (strung.length > 1) {
+      curve(ctx, strung);
+      ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + line.weight * (centred ? 0.5 : 0.28)})`;
+      ctx.lineWidth = centred ? 1.1 : 0.75;
+      ctx.stroke();
     }
 
-    if (thought && !thought.drawn) {
-      // A face, not the generated hand: the line runs quietly beneath while
-      // the words rise out of it.
-      const m = Math.min(1, thought.m);
-      const eased = m * m * (3 - 2 * m);
-      const still = 1 - eased * C.quiet;
-      for (let x = startX; x <= endX; x += (endX - startX) / 8 || 1) {
-        points.push({ x, y: line.y + vibration(line, x, now) * still });
-      }
+    if (!thought) return;
+
+    if (!thought.drawn) {
       brushed.push({ thought, row, line, startX, eased, now });
-    } else if (thought) {
-      const m = Math.min(1, thought.m);
-      const eased = m * m * (3 - 2 * m);
-      // The letters shiver until they are fully resolved.
-      const jitter = (1 - eased) * line.amp * 0.5;
-      const still = 1 - eased * C.quiet;
-      const gap2 = C.minGap * C.minGap;
-
-      // Leaving, a word is a string pulled tight from both ends: its loops
-      // unfurl, its points spread evenly along their own length, and the
-      // whole of it draws straight onto the line it was written on.
-      const taut = thought.taut || 0;
-      const run = path.run;
-      const runFrom = run ? run[row.from] : 0;
-      const runLen = run ? Math.max(1e-6, run[row.to] - runFrom) : 1;
-      const tautWidth = (row.x1 - row.x0) * em * C.tautPull;
-
-      // Words that have only just arrived have no birthday yet; they get
-      // this moment, and start finding their shape from here.
-      while (thought.wordAt.length < (path.words || 1)) thought.wordAt.push(now);
-
-      // The line's vibration is sampled coarsely across the writing and
-      // interpolated: letters should ride the string, not be speckled by it.
-      const span = Math.max(1, endX - startX);
-      const taps = Math.max(2, Math.ceil(span / 26));
-      const tap = [];
-      for (let k = 0; k <= taps; k++) {
-        const x = startX + (span * k) / taps;
-        tap.push(vibration(line, x < right ? x : right, now) * still);
-      }
-      let lastX = -1e9;
-      let lastY = -1e9;
-      const pts = path.points;
-
-      for (let i = row.from; i <= row.to; i++) {
-        const p = pts[i];
-
-        // Each word finds its own shape in its own time, so the phrase
-        // writes itself along rather than appearing all at once.
-        const born = thought.wordAt[p.w] ?? now;
-        const age = (now - born) / C.formMs;
-        const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
-        // In something recalled, only the word that reached back is fully
-        // formed; the company it kept stays half-resolved around it.
-        const dim = thought.focusWord === undefined || thought.focusWord === p.w
-          ? 1 : C.recallDim;
-        const lm = grown * eased * dim;
-        const loose = 1 - lm;
-
-        // Until it is formed the stroke loops about the place it is heading,
-        // and the lean of the hand comes in with the height of the letter.
-        // The swing has to be slow ALONG the stroke as well as in time, or
-        // neighbouring points pull opposite ways and the hand looks chopped
-        // rather than loose.
-        const swing = loose * C.wiggle * em;
-        const phase = now * C.wiggleRate + p.x * C.wiggleSpread + line.seed;
-        const x = startX + ((p.x - row.x0) + p.y * lm * C.slant) * em
-          + Math.cos(phase) * swing;
-
-        const f = ((x - startX) / span) * taps;
-        const k = Math.min(taps - 1, Math.max(0, Math.floor(f)));
-        const ride = tap[k] + (tap[k + 1] - tap[k]) * (f - k);
-        const y = line.y + ride
-          - p.y * em * lm
-          + Math.sin(phase * 1.3) * swing * 0.7
-          + (jitter ? Math.sin(p.x * C.wiggleSpread * 1.7 + now * C.tremorRate) * jitter * loose : 0);
-
-        let px = x;
-        let py = y;
-        if (taut > 0 && run) {
-          const along = (run[i] - runFrom) / runLen;
-          px = x + (startX + along * tautWidth - x) * taut;
-          py = y + (line.y + ride - y) * taut;
-        }
-
-        // Points closer together than a pixel cost the same to draw and
-        // show nothing, so only keep the ones that move the pen.
-        const dx = px - lastX;
-        const dy = py - lastY;
-        if (i !== row.to && dx * dx + dy * dy < gap2) continue;
-        points.push({ x: px, y: py });
-        lastX = px;
-        lastY = py;
-      }
+      for (const b of brushed) drawBrush(ctx, b);
+      return;
     }
 
-    for (let x = endX; x <= right; x += step) {
-      points.push({ x, y: line.y + vibration(line, x, now) });
+    // The writing: each letter its own mark, rising out of the string.
+    const pts = path.points;
+    const run = path.run;
+    const runFrom = run ? run[row.from] : 0;
+    const runLen = run ? Math.max(1e-6, run[row.to] - runFrom) : 1;
+    const taut = thought.taut || 0;
+    const tautWidth = (row.x1 - row.x0) * em * C.tautPull;
+    const gap2 = C.minGap * C.minGap;
+
+    while (thought.wordAt.length < (path.words || 1)) thought.wordAt.push(now);
+
+    // The line's own movement, sampled coarsely across the writing so the
+    // letters ride it instead of being speckled by it.
+    const span = Math.max(1, endX - startX);
+    const taps = Math.max(2, Math.ceil(span / 26));
+    const tap = [];
+    for (let k = 0; k <= taps; k++) {
+      const x = startX + (span * k) / taps;
+      tap.push(vibration(line, x < right ? x : right, now) * (1 - eased * C.quiet));
     }
 
-    if (points.length < 2) return;
-    curve(ctx, points);
+    // Dissolving, the letters flatten onto the string and the pen stops
+    // lifting between them: the line closes back up into itself.
+    const rejoined = taut > C.rejoinAt;
+    let letter = [];
+    let current = -1;
+    let lastX = -1e9;
+    let lastY = -1e9;
+    const ink = thought.alpha * (thought.glow ?? 1);
 
-    // Ink follows meaning: a line carrying writing is drawn as writing,
-    // heavier and darker than a line that is only vibrating.
-    const ink = thought ? thought.alpha * (thought.glow ?? 1) : 1;
-    const written = Boolean(thought) && thought.m > 0.1;
-    const weight = 0.1 + line.weight * (centred ? 0.55 : 0.3);
-    ctx.strokeStyle = `rgba(0, 0, 0, ${(written ? Math.min(0.92, weight + 0.34) : weight) * ink})`;
-    ctx.lineWidth = written
-      ? (centred ? 1.9 : 1.3) * (0.6 + 0.4 * (thought.glow ?? 1))
-      : (centred ? 1.1 : 0.75);
-    ctx.stroke();
+    const flush = () => {
+      if (letter.length > 1) {
+        curve(ctx, letter);
+        ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink})`;
+        ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
+        ctx.stroke();
+      }
+      letter = [];
+    };
 
-    for (const b of brushed) drawBrush(ctx, b);
+    for (let i = row.from; i <= row.to; i++) {
+      const p = pts[i];
+      if (p.s !== current) {
+        if (!rejoined) { flush(); lastX = -1e9; lastY = -1e9; }
+        current = p.s;
+      }
+
+      const born = thought.wordAt[p.w] ?? now;
+      const age = (now - born) / C.formMs;
+      const grown = age <= 0 ? 0 : age >= 1 ? 1 : age * age * (3 - 2 * age);
+      const dim = thought.focusWord === undefined || thought.focusWord === p.w
+        ? 1 : C.recallDim;
+      const lm = grown * eased * dim;
+      const loose = 1 - lm;
+
+      const swing = loose * C.wiggle * em;
+      const phase = now * C.wiggleRate + p.x * C.wiggleSpread + line.seed;
+      const x = startX + ((p.x - row.x0) + p.y * lm * C.slant) * em
+        + Math.cos(phase) * swing;
+
+      const f = ((x - startX) / span) * taps;
+      const k = Math.min(taps - 1, Math.max(0, Math.floor(f)));
+      const ride = tap[k] + (tap[k + 1] - tap[k]) * (f - k);
+      const y = line.y + ride - p.y * em * lm + Math.sin(phase * 1.3) * swing * 0.7;
+
+      let px = x;
+      let py = y;
+      if (taut > 0 && run) {
+        const along = (run[i] - runFrom) / runLen;
+        px = x + (startX + along * tautWidth - x) * taut;
+        py = y + (line.y + ride - y) * taut;
+      }
+
+      const dx = px - lastX;
+      const dy = py - lastY;
+      if (i !== row.to && dx * dx + dy * dy < gap2) continue;
+      letter.push({ x: px, y: py });
+      lastX = px;
+      lastY = py;
+    }
+    flush();
   }
 
   /**
