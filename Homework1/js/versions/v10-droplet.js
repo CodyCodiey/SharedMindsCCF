@@ -17,6 +17,9 @@ const C = {
   wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
   wobbleRate: 0.0005,
+  margin: 60,
+  rainEveryMs: 1500,     // how often a drop of rain lands somewhere on the pool
+  rainReach: 0.45,       // how far a raindrop's rings get, against a thought's
   samples: 220,          // points around a ring
 
   // The hand
@@ -74,6 +77,8 @@ export const CONTROLS = [
   { key: 'ripples', label: 'How many rings a droplet sends out', min: 1, max: 14, step: 1, group: 'The pool' },
   { key: 'rippleSpeed', label: 'How fast they travel', min: 0.01, max: 0.2, step: 0.005, group: 'The pool' },
   { key: 'rippleFade', label: 'How far they reach before fading', min: 150, max: 1400, step: 20, group: 'The pool' },
+  { key: 'rainEveryMs', label: 'How often rain lands on the pool', min: 200, max: 8000, step: 100, group: 'The pool' },
+  { key: 'rainReach', label: 'How far a raindrop reaches', min: 0.1, max: 1, step: 0.05, group: 'The pool' },
   { key: 'wobble', label: 'How far a ring departs from a circle', min: 0, max: 20, step: 0.2, group: 'The pool' },
 
   { key: 'formMs', label: 'How long one word takes to take shape', min: 200, max: 3000, step: 50, group: 'Taking shape' },
@@ -106,6 +111,7 @@ export function create() {
   let nextRecall = 0;
   let nextBurst = 0;
   let nextRipple = 0;
+  let nextRain = 0;
   let ghostText = '';
 
   const thoughts = createThoughts({
@@ -278,15 +284,32 @@ export function create() {
         }
       }
 
-      // The pool goes on rippling from whatever has fallen into it.
+      // The pool goes on rippling from whatever has fallen into it — and
+      // from the middle even when nothing has, so it is a pool of water
+      // before it is anything else.
       if (now > nextRipple) {
         nextRipple = now + C.rippleEveryMs;
-        for (const drop of drops) if (drop.state !== 'gone') splash(drop, now);
+        const centre = pool();
+        rings.push({ at: centre, r: 4, born: now, scale: 1, seed: Math.random() * 100 });
+        for (const drop of drops) if (drop.state !== 'gone' && !drop.main) splash(drop, now);
+      }
+
+      // And the rain goes on falling on it.
+      if (now > nextRain) {
+        nextRain = now + C.rainEveryMs * (0.4 + Math.random() * 1.2);
+        rings.push({
+          at: {
+            x: C.margin + Math.random() * Math.max(1, size.w - C.margin * 2),
+            y: C.margin + Math.random() * Math.max(1, size.h - C.margin * 2),
+          },
+          r: 3, born: now, scale: 0.4, seed: Math.random() * 100, rain: true,
+        });
       }
       for (let i = rings.length - 1; i >= 0; i--) {
         const ring = rings[i];
         ring.r = (now - ring.born) * C.rippleSpeed + 4;
-        if (ring.r > C.rippleFade) rings.splice(i, 1);
+        const reach = ring.rain ? C.rippleFade * C.rainReach : C.rippleFade;
+        if (ring.r > reach) rings.splice(i, 1);
       }
       if (rings.length > C.ripples * 8) rings.splice(0, rings.length - C.ripples * 8);
 
@@ -329,7 +352,8 @@ export function create() {
       // The pool: rings spreading from everything that has fallen in.
       ctx.beginPath();
       for (const ring of rings) {
-        const fade = 1 - ring.r / C.rippleFade;
+        const reach = ring.rain ? C.rippleFade * C.rainReach : C.rippleFade;
+        const fade = 1 - ring.r / reach;
         if (fade <= 0.02) continue;
         addRing(ctx, ring.at, ring.r, ring.seed, now, null);
       }

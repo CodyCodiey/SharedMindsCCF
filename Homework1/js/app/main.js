@@ -271,7 +271,9 @@ document.addEventListener('keydown', (event) => {
   if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
   // Number keys jump straight to a version, for demoing without the mouse.
   if (event.key === '`') { panel.hidden = !panel.hidden; return; }
-  const n = Number(event.key);
+  // 1-9 pick the first nine; 0 picks the tenth.
+  const typed = Number(event.key);
+  const n = event.key === '0' ? 10 : typed;
   if (n >= 1 && n <= VERSIONS.length) load(VERSIONS[n - 1].meta.id);
 });
 
