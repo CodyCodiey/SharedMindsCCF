@@ -62,16 +62,16 @@ const C = {
   riseEase: 0.1,
   fallEase: 0.03,
   backLevel: 0.5,        // how far a settled thought stays resolved
-  holdMs: 11000,         // it stays legible in the field this long
-  fadeMs: 5000,
-  keep: 5,               // thoughts held in the background at once
+  leaveMs: 2600,         // how long a finished thought takes to unwrite
+  leaveStagger: 0.85,    // how far the right end leads the left on the way out
 
   // Nothing said is ever discarded: it drops into a latent space and comes
   // back when the sentence being spoken reaches for the same words.
   recallGapMs: 2200,     // the least time between two things resurfacing
   recallWords: 2,        // words either side of the earlier occurrence
   recallLevel: 0.72,     // recalls are legible, but only for a moment
-  recallHoldMs: 1900,
+  recallHoldMs: 1900,   // for something that surfaced unprompted
+  recallEcho: 2,        // how much longer a linked one stays after its thought goes
   recallFadeMs: 1100,
   recallRise: 0.16,      // they arrive quickly, the way a stray thought does
 
@@ -134,9 +134,11 @@ export const CONTROLS = [
   { key: 'quiet', label: 'stillness under writing', min: 0, max: 1, step: 0.02 },
   { key: 'maxWords', label: 'words per thought', min: 4, max: 40, step: 1, thought: true },
   { key: 'pauseMs', label: 'silence that ends a thought', min: 400, max: 5000, step: 100, thought: true },
-  { key: 'holdMs', label: 'how long a thought stays', min: 4000, max: 90000, step: 1000 },
+  { key: 'leaveMs', label: 'time to unwrite', min: 600, max: 8000, step: 100 },
+  { key: 'leaveStagger', label: 'right-to-left lead', min: 0, max: 2, step: 0.05 },
   { key: 'swellPeriodMs', label: 'swell of the background', min: 3000, max: 40000, step: 500 },
   { key: 'recallGapMs', label: 'gap between recalls', min: 500, max: 10000, step: 100 },
+  { key: 'recallEcho', label: 'how long a link lingers', min: 0, max: 6, step: 0.25 },
   { key: 'burstEveryMs', label: 'time between bursts', min: 1500, max: 30000, step: 500 },
   { key: 'lines', label: 'strings', min: 5, max: 41, step: 2, rebuild: true },
   { key: 'slideStep', label: 'glide speed', min: 1, max: 30, step: 1 },
@@ -156,8 +158,8 @@ export function create() {
   const thoughts = createThoughts({
     min: 5, max: 10, threshold: 0.13,
     maxWords: C.maxWords, pauseMs: C.pauseMs,
-    onWords(tokens) {
-      if (!active) active = begin();
+    onWords(tokens, index, t) {
+      if (!active) active = begin(t);
       for (const tk of tokens) active.words.push(tk.text);
       active.text = active.words.join(' ');
       active.path = null;         // rebuilt on the next draw
@@ -165,7 +167,7 @@ export function create() {
       active.em = 0;
     },
     // A thought too slight to be named still finishes and settles back.
-    onClose({ t }) { settle(t); },
+    onClose({ t }) { leave(t); },
   });
 
   const centre = () => (lines.length - 1) >> 1;
@@ -216,8 +218,9 @@ export function create() {
     return (sum + shiver) * line.amp;
   }
 
-  function begin() {
+  function begin(now) {
     const thought = {
+      bornAt: now,
       words: [], text: '', path: null, wordAt: [],
       line: centre(), m: 0, target: 1,
       state: 'writing', at: 0, alpha: 1,
@@ -227,28 +230,17 @@ export function create() {
     return thought;
   }
 
-  /** The thought is finished: it settles back among the other strings. */
-  function settle(now) {
-    if (!active) return;
+  /**
+   * The thought is finished. It does not move anywhere else on the screen —
+   * it unwrites itself back into the string it came out of, from the right
+   * end leftward, leaving the line clear for the next one.
+   */
+  function leave(now) {
     const thought = active;
     active = null;
-    thought.state = 'settled';
-    thought.back = true;
+    if (!thought) return;
+    thought.state = 'leaving';
     thought.at = now;
-    thought.target = C.backLevel;
-    thought.swellPhase = Math.random() * Math.PI * 2;
-
-    // Take a line away from the middle, alternating up and down the field.
-    const taken = new Set(live.filter((t) => t !== thought && t.back).map((t) => t.line));
-    const order = [];
-    for (let d = 2; d < lines.length; d++) {
-      order.push(centre() - d, centre() + d);
-    }
-    thought.line = order.find((i) => i >= 0 && i < lines.length && !taken.has(i))
-      ?? (Math.random() < 0.5 ? 0 : lines.length - 1);
-
-    const settled = live.filter((t) => t.back);
-    if (settled.length > C.keep) settled[0].state = 'fading';
   }
 
   /**
@@ -271,16 +263,18 @@ export function create() {
     const line = freeLine();
     if (line === null) return;
 
-    surface(found, line, now);
+    surface(found, line, now, active);
   }
 
   /** Put a fragment on a background line, briefly. */
-  function surface({ text, focus }, line, now) {
+  function surface({ text, focus }, line, now, source) {
     nextRecall = now + C.recallGapMs;
     live.push({
       words: text.split(' '), text, path: null, wordAt: [], focusWord: focus,
       line, m: 0, target: C.recallLevel,
       state: 'recalled', at: now, alpha: 1, glow: 1, back: true,
+      // What called it back, so it can stay while that thought is on screen.
+      source, until: 0,
       swellPhase: Math.random() * Math.PI * 2,
     });
   }
@@ -513,29 +507,46 @@ export function create() {
         const ease = thought.target > thought.m ? rise : C.fallEase;
         thought.m += (thought.target - thought.m) * ease;
 
-        // Background writing swells into legibility and retreats again: it is
-        // the ink that comes and goes, not the shape of the letters.
+        // A resurfaced fragment swells into legibility and retreats again:
+        // it is the ink that comes and goes, not the shape of the letters.
         if (thought.back && thought.state !== 'sinking') {
           const swell = 0.5 + 0.5 * Math.sin(
             (now / C.swellPeriodMs) * Math.PI * 2 + (thought.swellPhase || 0)
           );
           thought.glow = C.swellFloor + (C.swellPeak - C.swellFloor) * swell;
-          if (thought.state === 'settled') {
-            thought.target = C.backLevel + C.backLevelSwing * (swell - 0.5);
-          }
         } else if (!thought.back) {
           // A thought gathers weight as it accumulates.
           const grown = Math.min(1, thought.words.length / C.growWords);
           thought.glow = C.growFloor + (1 - C.growFloor) * grown;
         }
 
-        if (thought.state === 'settled' && now - thought.at > C.holdMs) {
-          thought.state = 'fading';
-          thought.at = now;
+        if (thought.state === 'leaving') {
+          const k = Math.min(1, (now - thought.at) / C.leaveMs);
+          thought.taut = k;
+          // Once it has gone back into the line there is nothing left of it.
+          if (k >= 1) {
+            // Remember when it went, so anything it called back knows how
+            // long it was here.
+            thought.goneAt = now;
+            live.splice(i, 1);
+            continue;
+          }
         }
-        if (thought.state === 'recalled' && now - thought.at > C.recallHoldMs) {
-          thought.state = 'sinking';
-          thought.at = now;
+        if (thought.state === 'recalled') {
+          const src = thought.source;
+          if (src && !src.goneAt) {
+            // The word that called it back is still on the screen, so it
+            // stays: the two are visibly holding on to each other.
+            thought.until = 0;
+          } else {
+            // Once that thought has gone, it lingers about twice as long
+            // again before letting go.
+            const life = src ? Math.max(600, src.goneAt - src.bornAt) : C.recallHoldMs;
+            if (!thought.until) {
+              thought.until = (src ? src.goneAt : thought.at) + life * C.recallEcho;
+            }
+            if (now > thought.until) { thought.state = 'sinking'; thought.at = now; }
+          }
         }
         if (thought.state === 'sinking') {
           const k = Math.min(1, (now - thought.at) / C.recallFadeMs);
@@ -543,15 +554,6 @@ export function create() {
           thought.target = C.recallLevel * (1 - k);
           thought.glow = (thought.glow ?? 1) * (1 - k * 0.6);
           thought.alpha = 1 - k * 0.85;
-          // It goes back to being latent, not gone.
-          if (k >= 1) live.splice(i, 1);
-        }
-        if (thought.state === 'fading') {
-          const k = Math.min(1, (now - thought.at) / C.fadeMs);
-          thought.taut = k;
-          thought.alpha = 1 - k;
-          thought.target = C.backLevel * (1 - k);
-          // Fully faded, it is just vibration again.
           if (k >= 1) live.splice(i, 1);
         }
       }
@@ -714,7 +716,7 @@ export function create() {
     const run = path.run;
     const runFrom = run ? run[row.from] : 0;
     const runLen = run ? Math.max(1e-6, run[row.to] - runFrom) : 1;
-    const taut = thought.taut || 0;
+    const leaving = thought.taut || 0;
     const tautWidth = (row.x1 - row.x0) * em * C.tautPull;
     const gap2 = C.minGap * C.minGap;
 
@@ -771,10 +773,15 @@ export function create() {
       // How far along its own word this point lies, and how much of the
       // word has been pulled straight by now: the head lands first.
       const wr = (path.wordRange && path.wordRange[p.w]) || { from: row.from, to: row.to, x0: 0, x1: 1 };
+      // Unwriting runs along the row: the right-hand end goes back into the
+      // line first and the rest follows leftward.
+      const across = row.x1 > row.x0 ? (p.x - row.x0) / (row.x1 - row.x0) : 1;
+      const taut = Math.max(0, Math.min(1,
+        leaving * (1 + C.leaveStagger) - (1 - across) * C.leaveStagger));
       const u = wr.to > wr.from ? (i - wr.from) / (wr.to - wr.from) : 1;
       const pulled = Math.max(0, Math.min(1,
         grown * (1 + C.coilStagger) - u * C.coilStagger));
-      const lm = pulled * eased * dim;
+      const lm = pulled * eased * dim * (1 - taut);
       const loose = 1 - lm;
 
       const swing = loose * C.wiggle * em;
@@ -835,8 +842,8 @@ export function create() {
     flush();
 
     // The joins come in with the dissolve, so the marks knit back together.
-    if (joins.length && taut > 0.01) {
-      ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink * taut})`;
+    if (joins.length && leaving > 0.01) {
+      ctx.strokeStyle = `rgba(0, 0, 0, ${Math.min(0.92, 0.5 + line.weight * 0.4) * ink * leaving})`;
       ctx.lineWidth = (centred ? 1.9 : 1.4) * (0.6 + 0.4 * (thought.glow ?? 1));
       for (const [a, b] of joins) {
         ctx.beginPath();
@@ -860,7 +867,7 @@ export function create() {
       thought.wordAt.push(now);
     }
 
-    const taut = thought.taut || 0;
+    const leaving = thought.taut || 0;
     const glow = thought.glow ?? 1;
 
     for (const word of row.words) {
