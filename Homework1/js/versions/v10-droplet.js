@@ -13,7 +13,7 @@ const C = {
   ripples: 7,            // rings a droplet sends out
   rippleInk: 0.4,        // how dark a new ring is
   maxRings: 260,
-  rippleSpeed: 0.018,    // pixels a millisecond
+  rippleSpeed: 0.016,    // pixels a millisecond
   wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
   wobbleRate: 0.0005,
@@ -122,7 +122,7 @@ export function create() {
 
   const thoughts = createThoughts({
     min: 5, max: 10, threshold: 0.13,
-    maxWords: C.maxWords, pauseMs: C.pauseMs,
+    maxWords: C.maxWords, pauseMs: C.pauseMs, breakOnHedge: true,
     onWords(tokens, index, t) {
       if (!active) active = begin(t);
       for (const tk of tokens) active.words.push(tk.text);
@@ -167,6 +167,29 @@ export function create() {
   }
 
   /** A droplet lands: rings start travelling out from where it fell. */
+  /**
+   * Where a word sits on its ring. Each word is its own nucleus: what
+   * ripples, ripples from there rather than from the middle of the thought.
+   */
+  function wordCentre(drop, index) {
+    const path = pathOf(drop);
+    const wr = path.wordRange && path.wordRange[index];
+    if (!wr) return drop.at;
+    const pts = path.points;
+    const mid = (pts[wr.from].x + pts[wr.to].x) / 2;
+    const em = drop.em ?? C.em * drop.baseScale;
+    const R = Math.max(1, drop.radius);
+    const span = (path.width * em) / R;
+    const from = drop.from ?? (-Math.PI / 2 - span / 2);
+    const a = from + (mid * em) / R;
+    return { x: drop.at.x + Math.cos(a) * R, y: drop.at.y + Math.sin(a) * R };
+  }
+
+  function splashAt(at, now, scale, seed) {
+    rings.push({ at, r: 4, born: now, scale, seed });
+    if (rings.length > C.maxRings) rings.splice(0, rings.length - C.maxRings);
+  }
+
   function splash(drop, now) {
     rings.push({ at: drop.at, r: 4, born: now, scale: drop.scale, seed: drop.seed });
     if (rings.length > C.maxRings) rings.splice(0, rings.length - C.maxRings);
@@ -176,11 +199,9 @@ export function create() {
     const drop = active;
     active = null;
     if (!drop) return;
-    // It does not unwrite. It keeps its words and goes on out with its own
-    // ripple, widening and fading into the distance.
+    // Nothing to do but let it go: it has been riding outward since it
+    // landed, and simply carries on.
     drop.spreading = true;
-    drop.spreadFrom = now;
-    drop.held = drop.want;
   }
 
   /**
@@ -303,7 +324,8 @@ export function create() {
         // weighs more than a word that only joins, and one that has been
         // said before weighs more again.
         if (active) {
-          splash(active, t);
+          active.toSplash = (active.toSplash || []);
+          active.toSplash.push(active.words.length - 1);
           const seenBefore = token.content && (occurrences.get(token.key) || []).length;
           active.charge = (active.charge || 0)
             + 1
@@ -347,14 +369,26 @@ export function create() {
       }
       if (rings.length > C.ripples * 8) rings.splice(0, rings.length - C.ripples * 8);
 
+      // Every word said sends a bare ripple out from the droplet it belongs
+      // to — the same waves the writing rides on, without any writing.
+      for (const drop of drops) {
+        if (!drop.toSplash || !drop.toSplash.length) continue;
+        for (let k = 0; k < drop.toSplash.length; k++) {
+          splashAt(drop.at, now, drop.baseScale, drop.seed);
+        }
+        drop.toSplash = [];
+      }
+
       // What a thought is carrying goes on ringing after it has been said:
       // a loaded one troubles the water for a long time, a slight one is
-      // finished almost as soon as it lands.
+      // finished almost as soon as it lands. It rings from its words, not
+      // from its middle.
       for (const drop of drops) {
         if (!(drop.charge > 0)) continue;
         if (now < (drop.nextRing ?? 0)) continue;
         drop.nextRing = now + C.afterRippleMs;
-        splash(drop, now);
+        const words = Math.max(1, drop.words.length);
+        splashAt(drop.at, now, drop.baseScale, drop.seed);
         drop.charge -= 1;
       }
 
@@ -364,23 +398,23 @@ export function create() {
 
         // The ring opens out to hold what has been said on it.
         const path = pathOf(drop);
-        const arc = path.width * C.em * drop.scale;
-        drop.want = Math.max(C.minRadius * drop.baseScale, arc / (Math.PI * 2 * C.fill));
-        if (!drop.spreading && drop.main) {
-          drop.radius += (drop.want - drop.radius) * C.growEase;
-        }
 
-        if (drop.spreading || !drop.main) {
-          // Everything that is finished drifts outward the same way: its
-          // ring widens, its words grow with it, and it fades away.
-          const since = drop.spreadFrom ?? drop.bornAt;
-          const spread = (now - since) * C.spreadSpeed;
-          const held = drop.held ?? drop.want;
-          drop.radius = held + spread;
-          drop.scale = drop.baseScale * (1 + Math.min(C.spreadTo, spread / Math.max(1, held)));
-          drop.alpha = 1;
-          if (drop.radius > reachOf(drop.at) + C.em * drop.scale * 2) drops.splice(i, 1);
-        }
+        // The ring a sentence is written on is one of its own ripples: it
+        // leaves the droplet when the thought lands and keeps travelling,
+        // and the words ride outward on it.
+        const start = C.minRadius * drop.baseScale;
+        drop.radius = start + (now - drop.bornAt) * C.rippleSpeed;
+        const R = drop.radius;
+
+        // Riding out, the writing grows with the water under it. It is not
+        // squeezed to fit: a word waits until the ring is wide enough to
+        // carry it, and appears when it is.
+        const opened = 1 + Math.min(C.spreadTo, (R - start) / Math.max(1, start));
+        drop.em = C.em * drop.baseScale * opened;
+        drop.scale = drop.em / Math.max(0.001, C.em);
+        drop.alpha = 1;
+
+        if (R > reachOf(drop.at) + drop.em * 2) drops.splice(i, 1);
       }
     },
 
@@ -444,9 +478,13 @@ export function create() {
   /** A droplet: the ring it wrote on, and the words standing off it. */
   function drawDrop(ctx, drop, now) {
     const path = pathOf(drop);
-    const em = C.em * drop.scale;
+    const em = drop.em ?? C.em * drop.baseScale;
     const R = drop.radius;
-    const span = (path.width * em) / Math.max(1, R);
+
+    // How much of the writing this ring can carry yet. Anything past it is
+    // waiting for the water to widen.
+    const carried = Math.min(path.width, (Math.PI * 2 * R * C.fill) / Math.max(1, em));
+    const span = (carried * em) / Math.max(1, R);
     // Where the sentence begins on the ring is eased: a word arriving
     // lengthens the writing, and without this the whole ring swung round to
     // recentre it in a single frame.
@@ -484,6 +522,7 @@ export function create() {
 
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
+      if (p.x > carried) break;      // not yet borne up by the ring
       if (p.s !== current) { flush(); current = p.s; lastX = -1e9; lastY = -1e9; }
 
       const born = drop.wordAt[p.w] ?? now;

@@ -67,6 +67,19 @@ export function isJapanese(text) {
   return KANJI.test(text) || KATAKANA.test(text) || HIRAGANA.test(text);
 }
 
+// The noises a sentence makes when it is not going anywhere. A thought ends
+// at one of these: it is the sound of the thought running out.
+export const HEDGES = new Set(`
+um uhm uh erm er hmm hm mm mmm ah oh huh eh ugh
+like well anyway basically actually literally honestly frankly seriously
+kinda kinda sorta somewhat maybe perhaps possibly probably
+whatever whatnot right okay ok yeah yep nope
+`.trim().split(/\s+/));
+
+export function isHedge(word) {
+  return HEDGES.has(String(word).toLowerCase().replace(/[^a-z]/g, ''));
+}
+
 export function normalize(word) {
   const text = String(word).trim();
   if (isJapanese(text)) {

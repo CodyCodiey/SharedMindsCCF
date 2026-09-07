@@ -1,4 +1,5 @@
 import { tokenize, thoughtEnded, scoreWords, extractTopic } from './text.js';
+import { isHedge } from './lexicon.js';
 
 /**
  * Watches speech go by and decides where one thought ends and the next
@@ -9,6 +10,7 @@ export function createThoughts(options = {}) {
   const o = {
     min: 8, max: 20, block: 10, threshold: 0.11,
     maxWords: Infinity,     // words said, not just the ones that carry meaning
+    breakOnHedge: false,    // a hesitation ends the thought where it stands
     pauseMs: 3200,
     onWords: () => {},
     onEnd: () => {},
@@ -54,13 +56,15 @@ export function createThoughts(options = {}) {
     add(words, t) {
       const tokens = tokenize(words);
       if (!tokens.length) return [];
+      state.lastWordAt = t;
       for (const tk of tokens) {
         state.tokens.push(tk);
         if (tk.content) state.keys.push(tk.key);
+        o.onWords([tk], state.index, t);
+        // A hesitation is where the thought gave out; it ends there.
+        if (o.breakOnHedge && isHedge(tk.text)) { end(t); continue; }
+        if (thoughtEnded(state.keys, o, state.tokens.length)) end(t);
       }
-      state.lastWordAt = t;
-      o.onWords(tokens, state.index, t);
-      if (thoughtEnded(state.keys, o, state.tokens.length)) end(t);
       return tokens;
     },
     tick(now) {
