@@ -11,9 +11,12 @@ const C = {
   // The pool
   centre: { x: 0.5, y: 0.52 },
   ripples: 7,            // rings a droplet sends out
-  rippleInk: 0.4,        // how dark a new ring is
+  rippleInk: 0.4,
+  rippleLetGo: 0.35,     // the last part of its run, where it lets go        // how dark a new ring is
   maxRings: 1400,        // rings are cheap; they should reach the edge, not be culled
-  rippleSpeed: 0.016,    // pixels a millisecond
+  rippleSpeed: 0.34,     // bare water: quick, and gone
+  carrySpeed: 0.016,     // the ring that carries writing, slow enough to read
+  rippleReach: 560,      // how far a bare ripple gets before it has spent itself    // pixels a millisecond
   wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
   wobbleRate: 0.0005,
@@ -80,7 +83,9 @@ export const CONTROLS = [
   { key: 'minRadius', label: 'How wide the first ring is', min: 40, max: 400, step: 5, group: 'The pool' },
   { key: 'fill', label: 'How far round a ring the words may run', min: 0.2, max: 1, step: 0.02, group: 'The pool' },
   { key: 'ripples', label: 'How many rings a droplet sends out', min: 1, max: 14, step: 1, group: 'The pool' },
-  { key: 'rippleSpeed', label: 'How fast they travel', min: 0.01, max: 0.2, step: 0.005, group: 'The pool' },
+  { key: 'rippleSpeed', label: 'How fast the bare water travels', min: 0.01, max: 0.2, step: 0.005, group: 'The pool' },
+  { key: 'carrySpeed', label: 'How fast the writing drifts outward', min: 0.004, max: 0.12, step: 0.002, group: 'The pool' },
+  { key: 'rippleReach', label: 'How far a ripple gets before it is spent', min: 120, max: 1600, step: 20, group: 'The pool' },
   { key: 'rippleInk', label: 'How dark a new ripple is', min: 0.05, max: 1, step: 0.05, group: 'The pool' },
   { key: 'wobble', label: 'How far a ring departs from a circle', min: 0, max: 20, step: 0.2, group: 'The pool' },
 
@@ -365,9 +370,11 @@ export function create() {
       for (let i = rings.length - 1; i >= 0; i--) {
         const ring = rings[i];
         ring.r = (now - ring.born) * C.rippleSpeed + 4;
-        // It keeps going until there is none of it left to see, rather than
-        // dimming away in front of us.
-        if (ring.r > reachOf(ring.at)) rings.splice(i, 1);
+        // Water spends itself: a ripple runs out quickly rather than
+        // standing about, and goes when it has.
+        const reach = Math.min(C.rippleReach, reachOf(ring.at));
+        ring.spent = ring.r / reach;
+        if (ring.spent >= 1) rings.splice(i, 1);
       }
       if (rings.length > C.ripples * 8) rings.splice(0, rings.length - C.ripples * 8);
 
@@ -405,7 +412,7 @@ export function create() {
         // leaves the droplet when the thought lands and keeps travelling,
         // and the words ride outward on it.
         const start = C.minRadius * drop.baseScale;
-        drop.radius = start + (now - drop.bornAt) * C.rippleSpeed;
+        drop.radius = start + (now - drop.bornAt) * C.carrySpeed;
         const R = drop.radius;
 
         // Riding out, the writing grows with the water under it. It is not
@@ -433,13 +440,26 @@ export function create() {
       ctx.lineJoin = 'round';
 
       // The pool: rings spreading from everything that has fallen in.
-      // Every ring is drawn alike: they do not dim as they widen, they
-      // simply carry on until they have left the screen.
-      ctx.beginPath();
-      for (const ring of rings) addRing(ctx, ring.at, ring.r, ring.seed, now, null);
-      ctx.strokeStyle = `rgba(0, 0, 0, ${C.rippleInk})`;
-      ctx.lineWidth = 0.7;
-      ctx.stroke();
+      // A ripple holds its strength for most of its run and lets go at the
+      // end of it, the way water does.
+      const bands = 4;
+      const grouped = [];
+      for (const ring of rings) {
+        const left = 1 - (ring.spent ?? 0);
+        const strength = Math.min(1, left / C.rippleLetGo);
+        if (strength <= 0.02) continue;
+        const band = Math.min(bands - 1, Math.floor(strength * bands));
+        (grouped[band] || (grouped[band] = [])).push(ring);
+      }
+      for (let b = 0; b < bands; b++) {
+        const group = grouped[b];
+        if (!group) continue;
+        ctx.beginPath();
+        for (const ring of group) addRing(ctx, ring.at, ring.r, ring.seed, now, null);
+        ctx.strokeStyle = `rgba(0, 0, 0, ${C.rippleInk * ((b + 0.5) / bands)})`;
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
 
       for (const drop of drops) drawDrop(ctx, drop, now);
     },
