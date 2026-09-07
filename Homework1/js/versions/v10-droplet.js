@@ -12,7 +12,7 @@ const C = {
   centre: { x: 0.5, y: 0.52 },
   ripples: 7,            // rings a droplet sends out
   rippleInk: 0.4,        // how dark a new ring is
-  maxRings: 260,
+  maxRings: 1400,        // rings are cheap; they should reach the edge, not be culled
   rippleSpeed: 0.016,    // pixels a millisecond
   wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
@@ -62,6 +62,7 @@ const C = {
   dropSpread: 0.22,      // how far from the middle a thought may land
   connotation: 0.72,     // how many of a word's pasts return at once
   maxDroplets: 7,        // the most a single word may throw
+  recallLife: 4200,      // how long a remembered fragment stays before it goes
   smallDrop: 0.62,       // a lesser droplet, against the size of the main one
   spreadSpeed: 0.016,    // how fast one goes on opening out after it lands
   spreadTo: 1.1,         // how much larger its writing grows as it spreads
@@ -102,6 +103,7 @@ export const CONTROLS = [
   { key: 'dropSpread', label: 'How far from the middle a thought may land', min: 0, max: 0.5, step: 0.01, group: 'The pool' },
   { key: 'connotation', label: 'How many of a word’s pasts return at once', min: 0, max: 1.4, step: 0.02, group: 'Coming back' },
   { key: 'maxDroplets', label: 'The most a single word may throw', min: 1, max: 20, step: 1, group: 'Coming back' },
+  { key: 'recallLife', label: 'How long a remembered fragment stays', min: 800, max: 20000, step: 200, group: 'Coming back' },
   { key: 'smallDrop', label: 'Size of a droplet that falls in beside it', min: 0.2, max: 1.2, step: 0.02, group: 'Coming back' },
   { key: 'spreadSpeed', label: 'How fast a returning droplet spreads', min: 0.005, max: 0.2, step: 0.005, group: 'Coming back' },
   { key: 'spreadTo', label: 'How much larger its words grow', min: 0, max: 3, step: 0.1, group: 'Coming back' },
@@ -412,7 +414,13 @@ export function create() {
         const opened = 1 + Math.min(C.spreadTo, (R - start) / Math.max(1, start));
         drop.em = C.em * drop.baseScale * opened;
         drop.scale = drop.em / Math.max(0.001, C.em);
-        drop.alpha = 1;
+
+        // What has just been said stays until it has left the screen. What
+        // was only remembered leaves its mark and evacuates.
+        drop.alpha = drop.main
+          ? 1
+          : Math.max(0, 1 - (now - drop.bornAt) / C.recallLife);
+        if (!drop.main && drop.alpha <= 0.01) { drops.splice(i, 1); continue; }
 
         if (R > reachOf(drop.at) + drop.em * 2) drops.splice(i, 1);
       }
