@@ -58,6 +58,7 @@ const C = {
   recallEcho: 3,
   burstEveryMs: 7500,
   burstChance: 0,        // nothing comes back unless a word calls it
+  dropSpread: 0.22,      // how far from the middle a thought may land
   smallDrop: 0.62,       // a lesser droplet, against the size of the main one
   spreadSpeed: 0.016,    // how fast one goes on opening out after it lands
   spreadTo: 1.1,         // how much larger its writing grows as it spreads
@@ -94,6 +95,7 @@ export const CONTROLS = [
   { key: 'leaveStagger', label: 'How far the head leads on the way out', min: 0, max: 2, step: 0.05, group: 'Ending a sentence' },
   { key: 'burstSpeed', label: 'How fast the ring runs outward as it goes', min: 0, max: 0.6, step: 0.01, group: 'Ending a sentence' },
 
+  { key: 'dropSpread', label: 'How far from the middle a thought may land', min: 0, max: 0.5, step: 0.01, group: 'The pool' },
   { key: 'smallDrop', label: 'Size of a droplet that falls in beside it', min: 0.2, max: 1.2, step: 0.02, group: 'Coming back' },
   { key: 'spreadSpeed', label: 'How fast a returning droplet spreads', min: 0.005, max: 0.2, step: 0.005, group: 'Coming back' },
   { key: 'spreadTo', label: 'How much larger its words grow', min: 0, max: 3, step: 0.1, group: 'Coming back' },
@@ -128,9 +130,17 @@ export function create() {
   const pool = () => ({ x: size.w * C.centre.x, y: size.h * C.centre.y });
 
   function begin(now) {
+    const centre = pool();
+    const reach = Math.min(size.w, size.h) * C.dropSpread;
+    const angle = Math.random() * Math.PI * 2;
+    const away = reach * Math.sqrt(Math.random());
     const drop = {
       words: [], text: '', path: null, wordAt: [],
-      at: pool(), scale: 1, main: true,
+      at: {
+        x: Math.max(C.margin, Math.min(size.w - C.margin, centre.x + Math.cos(angle) * away)),
+        y: Math.max(C.margin, Math.min(size.h - C.margin, centre.y + Math.sin(angle) * away)),
+      },
+      scale: 1, baseScale: 1, main: true,
       radius: C.minRadius, want: C.minRadius,
       m: 0, taut: 0, alpha: 1, state: 'writing',
       bornAt: now, since: now,
@@ -151,8 +161,11 @@ export function create() {
     const drop = active;
     active = null;
     if (!drop) return;
-    drop.state = 'leaving';
-    drop.since = now;
+    // It does not unwrite. It keeps its words and goes on out with its own
+    // ripple, widening and fading into the distance.
+    drop.spreading = true;
+    drop.spreadFrom = now;
+    drop.held = drop.want;
   }
 
   /**
@@ -182,7 +195,7 @@ export function create() {
         x: Math.max(80, Math.min(size.w - 80, centre.x + Math.cos(angle) * away)),
         y: Math.max(80, Math.min(size.h - 80, centre.y + Math.sin(angle) * away)),
       },
-      scale: C.smallDrop, main: false,
+      scale: C.smallDrop, baseScale: C.smallDrop, main: false,
       radius: C.minRadius * C.smallDrop, want: C.minRadius * C.smallDrop,
       m: 0, taut: 0, alpha: 1, state: 'writing',
       bornAt: now, since: now, source, until: 0,
@@ -300,23 +313,19 @@ export function create() {
         // The ring opens out to hold what has been said on it.
         const path = pathOf(drop);
         const arc = path.width * C.em * drop.scale;
-        drop.want = Math.max(C.minRadius * drop.scale, arc / (Math.PI * 2 * C.fill));
-        drop.radius += (drop.want - drop.radius) * C.growEase;
+        drop.want = Math.max(C.minRadius * drop.baseScale, arc / (Math.PI * 2 * C.fill));
+        if (!drop.spreading && drop.main) {
+          drop.radius += (drop.want - drop.radius) * C.growEase;
+        }
 
-        if (drop.state === 'leaving') {
-          const k = Math.min(1, (now - drop.since) / C.leaveMs);
-          drop.taut = k;
-          drop.alpha = 1 - k * 0.94;
-          // Going, the ring runs outward the way its ripples do.
-          drop.radius += C.burstSpeed * 16;
-          if (k >= 1) { drop.state = 'gone'; drop.goneAt = now; drops.splice(i, 1); }
-        } else if (!drop.main) {
-          // A droplet that has come back does not stay: it lands, opens out
-          // to its full size, and goes on spreading until it is gone.
-          const age = now - drop.bornAt;
-          const spread = age * C.spreadSpeed;
-          drop.radius = drop.want + spread;
-          drop.scale = C.smallDrop * (1 + Math.min(C.spreadTo, spread / Math.max(1, drop.want)));
+        if (drop.spreading || !drop.main) {
+          // Everything that is finished drifts outward the same way: its
+          // ring widens, its words grow with it, and it fades away.
+          const since = drop.spreadFrom ?? drop.bornAt;
+          const spread = (now - since) * C.spreadSpeed;
+          const held = drop.held ?? drop.want;
+          drop.radius = held + spread;
+          drop.scale = drop.baseScale * (1 + Math.min(C.spreadTo, spread / Math.max(1, held)));
           drop.alpha = Math.max(0, 1 - spread / C.spreadFade);
           if (drop.alpha <= 0.01) drops.splice(i, 1);
         }
