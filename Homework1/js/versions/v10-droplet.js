@@ -11,12 +11,9 @@ const C = {
   // The pool
   centre: { x: 0.5, y: 0.52 },
   ripples: 7,            // rings a droplet sends out
-  rippleDecay: 1.8,      // how sharply a ring loses strength as it widens
   rippleInk: 0.4,        // how dark a new ring is
-  decayBands: 6,         // rings of like strength drawn together
   maxRings: 260,
   rippleSpeed: 0.018,    // pixels a millisecond
-  rippleFade: 760,       // how far a ring travels before it is gone
   wobble: 0,           // how far a ring departs from a circle
   wobbleModes: 3,
   wobbleRate: 0.0005,
@@ -58,11 +55,16 @@ const C = {
   recallEcho: 3,
   burstEveryMs: 7500,
   burstChance: 0,        // nothing comes back unless a word calls it
+  contentWeight: 1.4,    // what a word that means something adds
+  echoWeight: 2.2,       // what a word said before adds again
+  chargeMax: 42,         // the most a thought may carry
+  afterRippleMs: 620,    // how often it goes on ringing once said
   dropSpread: 0.22,      // how far from the middle a thought may land
+  connotation: 0.72,     // how many of a word's pasts return at once
+  maxDroplets: 7,        // the most a single word may throw
   smallDrop: 0.62,       // a lesser droplet, against the size of the main one
   spreadSpeed: 0.016,    // how fast one goes on opening out after it lands
   spreadTo: 1.1,         // how much larger its writing grows as it spreads
-  spreadFade: 620,       // how far it spreads before it is gone
   turnEase: 0.03,        // how gently the ring turns as a sentence lengthens
 };
 
@@ -78,9 +80,7 @@ export const CONTROLS = [
   { key: 'fill', label: 'How far round a ring the words may run', min: 0.2, max: 1, step: 0.02, group: 'The pool' },
   { key: 'ripples', label: 'How many rings a droplet sends out', min: 1, max: 14, step: 1, group: 'The pool' },
   { key: 'rippleSpeed', label: 'How fast they travel', min: 0.01, max: 0.2, step: 0.005, group: 'The pool' },
-  { key: 'rippleDecay', label: 'How sharply a ripple decays', min: 0.5, max: 5, step: 0.1, group: 'The pool' },
   { key: 'rippleInk', label: 'How dark a new ripple is', min: 0.05, max: 1, step: 0.05, group: 'The pool' },
-  { key: 'rippleFade', label: 'How far they reach before fading', min: 150, max: 1400, step: 20, group: 'The pool' },
   { key: 'wobble', label: 'How far a ring departs from a circle', min: 0, max: 20, step: 0.2, group: 'The pool' },
 
   { key: 'formMs', label: 'How long one word takes to take shape', min: 200, max: 3000, step: 50, group: 'Taking shape' },
@@ -95,11 +95,16 @@ export const CONTROLS = [
   { key: 'leaveStagger', label: 'How far the head leads on the way out', min: 0, max: 2, step: 0.05, group: 'Ending a sentence' },
   { key: 'burstSpeed', label: 'How fast the ring runs outward as it goes', min: 0, max: 0.6, step: 0.01, group: 'Ending a sentence' },
 
+  { key: 'contentWeight', label: 'What a word that means something adds', min: 0, max: 4, step: 0.1, group: 'The pool' },
+  { key: 'echoWeight', label: 'What a word said before adds again', min: 0, max: 5, step: 0.1, group: 'The pool' },
+  { key: 'afterRippleMs', label: 'How often a thought goes on ringing', min: 150, max: 3000, step: 50, group: 'The pool' },
+  { key: 'chargeMax', label: 'The most a thought may carry', min: 4, max: 120, step: 2, group: 'The pool' },
   { key: 'dropSpread', label: 'How far from the middle a thought may land', min: 0, max: 0.5, step: 0.01, group: 'The pool' },
+  { key: 'connotation', label: 'How many of a word’s pasts return at once', min: 0, max: 1.4, step: 0.02, group: 'Coming back' },
+  { key: 'maxDroplets', label: 'The most a single word may throw', min: 1, max: 20, step: 1, group: 'Coming back' },
   { key: 'smallDrop', label: 'Size of a droplet that falls in beside it', min: 0.2, max: 1.2, step: 0.02, group: 'Coming back' },
   { key: 'spreadSpeed', label: 'How fast a returning droplet spreads', min: 0.005, max: 0.2, step: 0.005, group: 'Coming back' },
   { key: 'spreadTo', label: 'How much larger its words grow', min: 0, max: 3, step: 0.1, group: 'Coming back' },
-  { key: 'spreadFade', label: 'How far it spreads before it is gone', min: 100, max: 1200, step: 20, group: 'Coming back' },
   { key: 'recallGapMs', label: 'Least time between two droplets', min: 400, max: 8000, step: 100, group: 'Coming back' },
   { key: 'burstEveryMs', label: 'How often one falls unprompted', min: 1500, max: 30000, step: 500, group: 'Coming back' },
 ];
@@ -128,6 +133,16 @@ export function create() {
   });
 
   const pool = () => ({ x: size.w * C.centre.x, y: size.h * C.centre.y });
+
+  /** How far a ring must reach from here before none of it is on screen. */
+  function reachOf(at) {
+    return Math.max(
+      Math.hypot(at.x, at.y),
+      Math.hypot(size.w - at.x, at.y),
+      Math.hypot(at.x, size.h - at.y),
+      Math.hypot(size.w - at.x, size.h - at.y)
+    );
+  }
 
   function begin(now) {
     const centre = pool();
@@ -175,8 +190,22 @@ export function create() {
   function remember(token, now) {
     const seen = occurrences.get(token.key);
     if (!seen || seen.length < 2 || now < nextRecall) return;
-    const at = seen[Math.floor(Math.random() * (seen.length - 1))];
-    surface(at, now, active);
+
+    // The more often a word has been said, the more of its pasts come back
+    // at once: a loaded word throws a scatter of droplets, each carrying a
+    // different company it once kept.
+    const earlier = seen.slice(0, -1);
+    const many = Math.max(1, Math.min(
+      C.maxDroplets,
+      Math.round(Math.pow(earlier.length, C.connotation))
+    ));
+
+    const pool = earlier.slice();
+    for (let k = 0; k < many && pool.length; k++) {
+      const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      surface(pick, now, active);
+    }
+    nextRecall = now + C.recallGapMs;
   }
 
   function surface(index, now, source) {
@@ -185,7 +214,6 @@ export function create() {
     const text = history.slice(from, to).map((tk) => tk.text).join(' ');
     if (!text) return;
 
-    nextRecall = now + C.recallGapMs;
     const centre = pool();
     const angle = Math.random() * Math.PI * 2;
     const away = C.minRadius * (1.9 + Math.random() * 1.5);
@@ -270,8 +298,19 @@ export function create() {
       const tokens = thoughts.add(list, t);
       ghostText = '';
       for (const token of tokens) {
-        // Every word said is a thing falling in the water.
-        if (active) splash(active, t);
+        // Every word said is a thing falling in the water, and every word
+        // adds to what the thought is carrying: a word that means something
+        // weighs more than a word that only joins, and one that has been
+        // said before weighs more again.
+        if (active) {
+          splash(active, t);
+          const seenBefore = token.content && (occurrences.get(token.key) || []).length;
+          active.charge = (active.charge || 0)
+            + 1
+            + (token.content ? C.contentWeight : 0)
+            + (seenBefore ? C.echoWeight : 0);
+          active.charge = Math.min(active.charge, C.chargeMax);
+        }
         history.push(token);
         if (!token.content) continue;
         let seen = occurrences.get(token.key);
@@ -302,9 +341,22 @@ export function create() {
       for (let i = rings.length - 1; i >= 0; i--) {
         const ring = rings[i];
         ring.r = (now - ring.born) * C.rippleSpeed + 4;
-        if (ring.r > C.rippleFade) rings.splice(i, 1);
+        // It keeps going until there is none of it left to see, rather than
+        // dimming away in front of us.
+        if (ring.r > reachOf(ring.at)) rings.splice(i, 1);
       }
       if (rings.length > C.ripples * 8) rings.splice(0, rings.length - C.ripples * 8);
+
+      // What a thought is carrying goes on ringing after it has been said:
+      // a loaded one troubles the water for a long time, a slight one is
+      // finished almost as soon as it lands.
+      for (const drop of drops) {
+        if (!(drop.charge > 0)) continue;
+        if (now < (drop.nextRing ?? 0)) continue;
+        drop.nextRing = now + C.afterRippleMs;
+        splash(drop, now);
+        drop.charge -= 1;
+      }
 
       for (let i = drops.length - 1; i >= 0; i--) {
         const drop = drops[i];
@@ -326,8 +378,8 @@ export function create() {
           const held = drop.held ?? drop.want;
           drop.radius = held + spread;
           drop.scale = drop.baseScale * (1 + Math.min(C.spreadTo, spread / Math.max(1, held)));
-          drop.alpha = Math.max(0, 1 - spread / C.spreadFade);
-          if (drop.alpha <= 0.01) drops.splice(i, 1);
+          drop.alpha = 1;
+          if (drop.radius > reachOf(drop.at) + C.em * drop.scale * 2) drops.splice(i, 1);
         }
       }
     },
@@ -339,28 +391,13 @@ export function create() {
       ctx.lineJoin = 'round';
 
       // The pool: rings spreading from everything that has fallen in.
-      // A ring loses its strength as it widens. Rings of like strength are
-      // gathered and drawn together, so the decay costs a handful of strokes
-      // rather than one for every ring on the water.
-      const bands = C.decayBands;
-      const grouped = new Array(bands).fill(null);
-      for (const ring of rings) {
-        const left = Math.max(0, 1 - ring.r / C.rippleFade);
-        const strength = Math.pow(left, C.rippleDecay);
-        if (strength <= 0.015) continue;
-        const band = Math.min(bands - 1, Math.floor(strength * bands));
-        (grouped[band] || (grouped[band] = [])).push(ring);
-      }
-      for (let b = 0; b < bands; b++) {
-        const group = grouped[b];
-        if (!group) continue;
-        const strength = (b + 0.5) / bands;
-        ctx.beginPath();
-        for (const ring of group) addRing(ctx, ring.at, ring.r, ring.seed, now, null);
-        ctx.strokeStyle = `rgba(0, 0, 0, ${C.rippleInk * strength})`;
-        ctx.lineWidth = 0.4 + 0.6 * strength;
-        ctx.stroke();
-      }
+      // Every ring is drawn alike: they do not dim as they widen, they
+      // simply carry on until they have left the screen.
+      ctx.beginPath();
+      for (const ring of rings) addRing(ctx, ring.at, ring.r, ring.seed, now, null);
+      ctx.strokeStyle = `rgba(0, 0, 0, ${C.rippleInk})`;
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
 
       for (const drop of drops) drawDrop(ctx, drop, now);
     },
