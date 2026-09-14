@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><title>drive</title>
+<style>body{margin:0;font:12px monospace}iframe{width:1400px;height:820px;border:0;display:block}
+#r{position:fixed;bottom:0;left:0;background:#fff;color:#c00;padding:4px;z-index:9}</style></head><body>
+<iframe id="f" src="/?bare"></iframe><div id="r">driving…</div>
+<script>
+const f = document.getElementById('f');
+f.onload = () => {
+  const win = f.contentWindow, doc = f.contentDocument;
+  const box = doc.getElementById('type');
+  const d = win.droplet;
+  const text = 'so the thing about the circuit is that the circuit computes with the body and the body is part of the circuit';
+  const words = text.split(' ');
+  let i = 0;
+
+  // type it the way a person does: characters into the box, a space at the end
+  // of each word, and let the app's own input handler pick them up
+  const typeWord = () => {
+    if (i >= words.length) return finish();
+    box.value += words[i++] + ' ';
+    box.dispatchEvent(new win.Event('input', { bubbles: true }));
+    d.advance(260);                 // let the water move between words
+    setTimeout(typeWord, 0);
+  };
+  const finish = () => {
+    d.advance(9000);                // then watch it for nine seconds
+    const p = d.pool;
+    document.getElementById('r').textContent =
+      `said=${p.stream.length} writings=${p.writings.length} ripples=${p.ripples.length} ` +
+      `thoughts=${p.log.length} [${p.log.map(e => e.why + ':' + e.charge).join(' ')}] ` +
+      `err=${d.view.error || 'none'}`;
+  };
+  setTimeout(typeWord, 50);
+};
+</script></body></html>

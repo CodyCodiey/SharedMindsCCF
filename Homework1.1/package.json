@@ -1,0 +1,13 @@
+{
+  "name": "droplet",
+  "version": "10.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A thought, embodied as a drop of water, falls into a pool.",
+  "scripts": {
+    "start": "node server/server.js",
+    "letters": "node tools/letters.js",
+    "segment": "node tools/segment.js",
+    "probe": "node tools/probe.js"
+  }
+}

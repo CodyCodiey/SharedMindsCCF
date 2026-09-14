@@ -1,0 +1,6 @@
+{
+  "name": "homework2",
+  "scripts": {
+    "dev": "npx http-server ."
+  }
+}

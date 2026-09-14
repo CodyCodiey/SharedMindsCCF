@@ -1,6 +1,6 @@
 # Droplet — a recreation spec
 
-A thought falls into a pool. Its ripples carry its words outward. What a word
+A thought, embodied as a drop of water, falls into a pool. Its ripples carry its words outward. What a word
 reminds you of falls in beside it.
 
 This describes version 10 of an exploration in visualising a stream of
@@ -13,7 +13,7 @@ watching; the section on what went wrong is as important as the rest.
 ## 1. What the piece is
 
 A white field. Speech falls into it as droplets. Each droplet sends rings of
-water outward, and one of those rings carries the sentence being spoken,
+water outward, and the outermost of those rings carries the sentence being spoken,
 written in a generated handwriting that is made from the ring itself. When a
 word comes round again, the company it kept before falls in as smaller
 droplets elsewhere on the pool, shows itself, and evacuates.

@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><title>forming</title>
+<style>body{margin:0;background:#fff}canvas{display:block}</style></head><body>
+<canvas id="c" width="1600" height="900"></canvas>
+<script type="module">
+import { CFG } from '../src/config.js?v=a6732beb';
+import { layout } from '../src/cursive.js?v=a6732beb';
+import { drawWriting, state } from '../src/ink.js?v=a6732beb';
+
+const ctx = document.getElementById('c').getContext('2d');
+ctx.fillStyle = '#fff'; ctx.fillRect(0,0,1600,900);
+ctx.strokeStyle = '#000'; ctx.lineCap='round'; ctx.lineJoin='round';
+
+// one word, at a spread of ages, each on its own ring
+const ages = [0, 150, 400, 800, 1400, 2400, 4000, 9000];
+CFG.minRadius = 300;            // a big ring, so the writing is legible here
+const cols = 4;
+const info = [];
+for (let i = 0; i < ages.length; i++) {
+  const w = { kind:'spoken', text:'mind', layout:layout('mind'),
+              x: 0, y: 0, born: 0, scale: 1, wordBorn: [], seed: 0.4, alpha: 1 };
+  const cx = 200 + (i % cols) * 400, cy = 230 + Math.floor(i / cols) * 420;
+  w.x = cx; w.y = cy + CFG.minRadius;    // put the top of the ring near cy
+  // step it frame by frame: wordBorn is set on the FIRST frame the water can
+  // carry the word, so a single call would always look freshly born
+  const nul = { path: () => new Path2D() };
+  for (let t = 0; t < ages[i]; t += 16) drawWriting(ctx, nul, w, t);
+  const batch = { paths: [], path(a, lw) { const p = new Path2D(); this.paths.push([p, a, lw]); return p; } };
+  const gap = drawWriting(ctx, batch, w, ages[i]);
+  for (const [p, a, lw] of batch.paths) { ctx.globalAlpha = a; ctx.lineWidth = lw; ctx.stroke(p); }
+  // the ring itself, broken over the writing
+  const { R } = state(w, ages[i]);
+  const ring = new Path2D();
+  if (gap) { ring.moveTo(w.x + R*Math.cos(gap.a1), w.y + R*Math.sin(gap.a1)); ring.arc(w.x, w.y, R, gap.a1, gap.a0 + Math.PI*2); }
+  else ring.arc(w.x, w.y, R, 0, Math.PI*2);
+  ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.stroke(ring);
+  ctx.globalAlpha = 1; ctx.fillStyle='#999'; ctx.font='13px monospace';
+  ctx.fillText(ages[i] + 'ms', cx - 30, cy - 120);
+  info.push(ages[i] + ':' + (gap ? 'gap' : 'none'));
+}
+document.title = 'forming ' + info.join(' ');
+</script></body></html>

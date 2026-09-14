@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Text to Image</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      gap: 1rem;
+    }
+    input[type="text"] { width: 400px; padding: 0.5rem; font-size: 1rem; }
+    button { padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
+    #status { color: gray; font-size: 0.9rem; min-height: 1.2em; }
+    #output { max-width: 512px; display: none; }
+    #thumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; max-width: 512px; }
+    #thumbs img { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; }
+    #upload-label {
+      cursor: pointer;
+      padding: 0.5rem 1rem;
+      border: 1px dashed #aaa;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    select { padding: 0.4rem; font-size: 0.9rem; }
+    #cam-wrap { display: none; flex-direction: column; align-items: center; gap: 0.5rem; }
+    #cam { width: 320px; border-radius: 4px; }
+    .row { display: flex; gap: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Text to Image</h1>
+  <input id="prompt" type="text" placeholder="describe an image…" autocomplete="off">
+
+  <div class="row">
+    <label id="upload-label">
+      + upload images
+      <input id="images" type="file" accept="image/*" multiple style="display:none">
+    </label>
+    <button id="cam-btn" type="button">use webcam</button>
+  </div>
+
+  <div id="cam-wrap">
+    <video id="cam" autoplay playsinline></video>
+    <div class="row">
+      <button id="snap" type="button">snap</button>
+      <button id="cam-close" type="button">close</button>
+    </div>
+  </div>
+
+  <div id="thumbs"></div>
+
+  <select id="aspect">
+    <option value="1:1">1:1 square</option>
+    <option value="16:9">16:9 landscape</option>
+    <option value="9:16">9:16 portrait</option>
+    <option value="4:3">4:3</option>
+    <option value="3:4">3:4</option>
+    <option value="match_input_image">match uploaded image</option>
+  </select>
+
+  <button id="generate">Generate</button>
+  <div id="status"></div>
+  <img id="output" alt="generated image">
+
+  <script>
+    const PROXY = "https://itp-ima-replicate-proxy.web.app/api/create_n_get";
+
+    const imageInput = document.getElementById("images");
+    const thumbs = document.getElementById("thumbs");
+    const camWrap = document.getElementById("cam-wrap");
+    const camEl = document.getElementById("cam");
+    let imageFiles = [];
+    let camDataURLs = [];
+    let stream = null;
+
+    imageInput.addEventListener("change", () => {
+      imageFiles = Array.from(imageInput.files).slice(0, 14);
+      renderThumbs();
+    });
+
+    document.getElementById("cam-btn").addEventListener("click", async () => {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      camEl.srcObject = stream;
+      camWrap.style.display = "flex";
+    });
+
+    document.getElementById("snap").addEventListener("click", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = camEl.videoWidth;
+      canvas.height = camEl.videoHeight;
+      canvas.getContext("2d").drawImage(camEl, 0, 0);
+      camDataURLs.push(canvas.toDataURL("image/jpeg"));
+      renderThumbs();
+    });
+
+    document.getElementById("cam-close").addEventListener("click", () => {
+      stream?.getTracks().forEach(t => t.stop());
+      camWrap.style.display = "none";
+    });
+
+    function renderThumbs() {
+      thumbs.innerHTML = "";
+      const fileURLs = imageFiles.map(f => ({ src: URL.createObjectURL(f), type: "file" }));
+      const camImgs = camDataURLs.map(d => ({ src: d, type: "cam" }));
+      [...fileURLs, ...camImgs].slice(0, 14).forEach(({ src }) => {
+        const img = document.createElement("img");
+        img.src = src;
+        thumbs.appendChild(img);
+      });
+    }
+
+    function fileToDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("generate").addEventListener("click", async () => {
+      const prompt = document.getElementById("prompt").value.trim();
+      if (!prompt) return;
+
+      const status = document.getElementById("status");
+      const output = document.getElementById("output");
+
+      status.textContent = "generating…";
+      output.style.display = "none";
+
+      try {
+        const fromFiles = await Promise.all(imageFiles.map(fileToDataURL));
+        const image_input = [...fromFiles, ...camDataURLs].slice(0, 14);
+        const aspect_ratio = document.getElementById("aspect").value;
+
+        const res = await fetch(PROXY, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            model: "google/nano-banana-2",
+            input: {
+              prompt,
+              image_input,
+              aspect_ratio,
+              output_format: "jpg"
+            }
+          })
+        });
+
+        const data = await res.json();
+        const out = data.output;
+        if (!out) { status.textContent = "no output: " + JSON.stringify(data); return; }
+
+        output.src = typeof out === 'string' ? out : (out?.url ?? out?.[0]);
+        output.style.display = "block";
+        status.textContent = "done";
+      } catch (err) {
+        status.textContent = "error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Droplet</title>
+<link rel="stylesheet" href="style.css?v=a6732beb">
+</head>
+<body>
+<canvas id="pool"></canvas>
+
+<div id="say">
+  <input id="type" placeholder="type a thought&hellip;" autocomplete="off" spellcheck="false">
+  <button id="micbtn" type="button" aria-label="listen" title="listen"><span></span></button>
+</div>
+
+<aside id="panel" class="hidden">
+  <header>
+    <strong>droplet</strong>
+    <span id="stat">&nbsp;</span>
+  </header>
+  <div id="err" hidden></div>
+
+  <details open>
+    <summary>speaking</summary>
+    <div class="row"><button id="mic">microphone</button><span id="micstate" class="note">off</span></div>
+    <div class="row">
+      <input id="url" placeholder="youtube url" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="row">
+      <button id="fetch">fetch captions</button>
+      <button id="play">play</button>
+      <button id="demo">demo</button>
+    </div>
+    <div class="row">
+      <button id="brainretch">load brainretch in 2026</button>
+      <button id="burst">burst the whole talk</button>
+      <span id="tstate" class="note">&mdash;</span>
+    </div>
+    <label class="row"><span class="k">rate</span>
+      <input id="rate" type="range" min="0.25" max="16" step="0.25" value="1">
+      <input id="rateval" class="v" type="text" value="1">
+    </label>
+  </details>
+
+  <div id="sliders"></div>
+
+
+  <details>
+    <summary>thoughts</summary>
+    <div id="log" class="log"></div>
+  </details>
+
+  <div class="row foot">
+    <button id="export">export settings</button>
+    <button id="clear">clear pool</button>
+  </div>
+  <textarea id="out" spellcheck="false" placeholder="the settings as they stand"></textarea>
+</aside>
+
+<script type="module" src="src/main.js?v=a6732beb"></script>
+</body>
+</html>
